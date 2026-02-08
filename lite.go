@@ -74,7 +74,7 @@ func f_import() error {
 	}
 
 	// make AVault
-	v := &AVault{Path: Cfg.Output}
+	v := &AVault{Path: Cfg.Output, Limit: 512 * 1048576, TreeView: make(map[string][]string), PtoCtbl: make(map[string]string), CtoPtbl: make(map[string]string)}
 	if Cfg.IsLegacy {
 		v.Algo = "rsa1"
 		v.Ext = "png"
@@ -222,7 +222,10 @@ func f_trim() error {
 	// make new key pair
 	oldPub, oldPriv := v.Public, v.Private
 	fmt.Println("Regenerating new key pair...")
-	v.NewKeypair()
+	err = v.NewKeypair()
+	if err != nil {
+		return err
+	}
 	newPub, newPriv := v.Public, v.Private
 
 	// re-encrypt all files
@@ -274,7 +277,7 @@ func main() {
 	case "trim":
 		err = f_trim()
 	case "version":
-		fmt.Println("2026 @k-atusa [USAG] AFT-lite v0.1")
+		fmt.Println("2026 @k-atusa [USAG] AFT-lite v0.1") // version indicator
 	default: // help
 		fmt.Println("-m mode [import|export|view|trim|version|help] -o outdir -pw password -kf keyfile -msg message")
 		fmt.Println("import: target -> outdir +(pw, kf, msg)")

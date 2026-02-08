@@ -43,9 +43,9 @@ CLI version does not support file transfer function. However, trim function is s
 - 로그인 화면 좌측은 기존 저장소에 로그인하는 기능이며, 우측은 새 저장소를 생성하는 기능입니다. The left side of the login screen is for logging into an existing vault, and the right side is for creating a new vault.
 - 뷰어 화면에서 파일 목록을 확인하고 텍스트와 이미지 데이터를 볼 수 있습니다. You can view the file list and text/image data in the viewer screen.
 
-** KeyFile is supposed to be smaller than 1024 bytes. Send function cuts the file if it is larger than 1024 bytes. **
+**KeyFile is supposed to be smaller than 1024 bytes. Send function cuts the file if it is larger than 1024 bytes.**
 
-** Empty password and keyfile are allowed to maximize user control. **
+**Empty password and keyfile are allowed to maximize user control.**
 
 ## Build Executable
 

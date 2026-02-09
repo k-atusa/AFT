@@ -50,7 +50,7 @@ func (m U1Theme) Size(n fyne.ThemeSizeName) float32       { return theme.Default
 
 // ===== config =====
 type U1Config struct {
-	AutoExpire bool     `json:"autoexpire"`
+	AutoExpire int      `json:"autoexpire"`
 	Shortcuts  []string `json:"shortcuts"`
 }
 
@@ -76,7 +76,7 @@ func (c *U1Config) Load() error {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			c.Shortcuts = []string{}
-			c.AutoExpire = true
+			c.AutoExpire = 20
 			return c.Store()
 		}
 		return err
@@ -201,14 +201,14 @@ func (l *LoginPage) Fill() {
 		go func() {
 			listener, err := net.Listen("tcp", ":"+port)
 			if err != nil {
-				dialog.ShowError(err, l.Window)
+				fyne.Do(func() { dialog.ShowError(err, l.Window) })
 				return
 			}
 			defer listener.Close()
 			listener.(*net.TCPListener).SetDeadline(time.Now().Add(90 * time.Second)) // 90s timeout
 			conn, err := listener.Accept()
 			if err != nil {
-				dialog.ShowError(err, l.Window)
+				fyne.Do(func() { dialog.ShowError(err, l.Window) })
 				return
 			}
 			defer conn.Close()
@@ -217,16 +217,18 @@ func (l *LoginPage) Fill() {
 			p.Init(0, conn)
 			fromPub, toPub, data, _, err := p.ReceiveData()
 			if err != nil {
-				dialog.ShowError(err, l.Window)
+				fyne.Do(func() { dialog.ShowError(err, l.Window) })
 				return
 			}
 
 			// 3. Update UI
-			l.KeyFile = data
-			crc0 := hex.EncodeToString(Opsec.Crc32(data))
-			crc1 := hex.EncodeToString(Opsec.Crc32(fromPub))
-			crc2 := hex.EncodeToString(Opsec.Crc32(toPub))
-			lbl1.SetText(fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2))
+			fyne.Do(func() {
+				l.KeyFile = data
+				crc0 := hex.EncodeToString(Opsec.Crc32(data))
+				crc1 := hex.EncodeToString(Opsec.Crc32(fromPub))
+				crc2 := hex.EncodeToString(Opsec.Crc32(toPub))
+				lbl1.SetText(fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2))
+			})
 		}()
 	})
 	box1 := container.NewBorder(nil, nil, container.NewHBox(btn1a, btn1b), nil, ent1)
@@ -358,14 +360,20 @@ type ViewPage struct {
 	LblTimer    *widget.Label
 	LblSelected *widget.Label
 
-	Vault      *AVault
-	AutoExpire bool
-	CurPath    string
+	Vault        *AVault
+	AutoExpire   bool
+	ExpireMinute int
+	CurPath      string
 }
 
 func (v *ViewPage) Main(c *U1Config, av *AVault) {
 	v.Vault = av
-	v.AutoExpire = c.AutoExpire
+	if c.AutoExpire > 0 {
+		v.AutoExpire = true
+		v.ExpireMinute = c.AutoExpire
+	} else {
+		v.AutoExpire = false
+	}
 	v.Window = v.App.NewWindow("AFT Vault - Viewer")
 	v.Fill()
 	v.Window.Resize(fyne.NewSize(800, 480))
@@ -431,7 +439,7 @@ func (v *ViewPage) Fill() {
 
 	// group3: bottom bar
 	lbl3 := widget.NewLabel(fmt.Sprintf("%s | %s | %s", v.Vault.Algo, v.Vault.Ext, v.Vault.Path))
-	v.LblSelected = widget.NewLabel("2026 @k-atusa [USAG] AFT v0.1") // version indicator
+	v.LblSelected = widget.NewLabel("2026 @k-atusa [USAG] AFT v0.2") // version indicator
 	var box3a []fyne.CanvasObject = []fyne.CanvasObject{lbl3, v.LblSelected, layout.NewSpacer()}
 
 	// group4: bottom right bar
@@ -473,10 +481,12 @@ func (v *ViewPage) ResetTimer() {
 	if v.LogoutTimer != nil {
 		v.LogoutTimer.Stop()
 	}
-	v.LogoutTime = time.Now().Add(20 * time.Minute)
-	v.LogoutTimer = time.AfterFunc(20*time.Minute, func() {
-		v.Vault = nil
-		v.Window.Close()
+	v.LogoutTime = time.Now().Add(time.Duration(v.ExpireMinute) * time.Minute)
+	v.LogoutTimer = time.AfterFunc(time.Duration(v.ExpireMinute)*time.Minute, func() {
+		fyne.Do(func() {
+			v.Vault = nil
+			v.Window.Close()
+		})
 	})
 }
 
@@ -491,7 +501,9 @@ func (v *ViewPage) UpdateTimerLoop() {
 			break
 		}
 		if v.LblTimer != nil {
-			v.LblTimer.SetText(fmt.Sprintf("Expire in %02d:%02d", int(remaining.Minutes()), int(remaining.Seconds())%60))
+			fyne.Do(func() {
+				v.LblTimer.SetText(fmt.Sprintf("Expire in %02d:%02d", int(remaining.Minutes()), int(remaining.Seconds())%60))
+			})
 		}
 	}
 }
@@ -597,14 +609,14 @@ func (v *ViewPage) transfer(cut bool) {
 				time.Sleep(3 * time.Second)
 			}
 			if err != nil {
-				dialog.ShowError(err, v.Window)
+				fyne.Do(func() { dialog.ShowError(err, v.Window) })
 				return
 			}
 			defer conn.Close()
 
 			// 4. Initialize Protocol
 			var mode uint16 = 0
-			if v.Vault.Ext != "webp" {
+			if v.Vault.Algo == "rsa1" {
 				mode |= MODE_LEGACY
 				mode |= MODE_RSA_4K
 			}
@@ -614,13 +626,15 @@ func (v *ViewPage) transfer(cut bool) {
 			// 5. Send Data
 			fromPub, toPub, err := p.SendData(data, "")
 			if err != nil {
-				dialog.ShowError(err, v.Window)
+				fyne.Do(func() { dialog.ShowError(err, v.Window) })
 				return
 			}
 			crc0 := hex.EncodeToString(Opsec.Crc32(data))
 			crc1 := hex.EncodeToString(Opsec.Crc32(fromPub))
 			crc2 := hex.EncodeToString(Opsec.Crc32(toPub))
-			dialog.ShowInformation("Transfer", fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2), v.Window)
+			fyne.Do(func() {
+				dialog.ShowInformation("Transfer", fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2), v.Window)
+			})
 		}()
 	}, v.Window)
 }
@@ -840,14 +854,14 @@ func (v *ViewPage) ResetPW() {
 		go func() {
 			listener, err := net.Listen("tcp", ":"+port)
 			if err != nil {
-				dialog.ShowError(err, w)
+				fyne.Do(func() { dialog.ShowError(err, w) })
 				return
 			}
 			defer listener.Close()
 			listener.(*net.TCPListener).SetDeadline(time.Now().Add(90 * time.Second)) // 90s timeout
 			conn, err := listener.Accept()
 			if err != nil {
-				dialog.ShowError(err, w)
+				fyne.Do(func() { dialog.ShowError(err, w) })
 				return
 			}
 			defer conn.Close()
@@ -856,16 +870,18 @@ func (v *ViewPage) ResetPW() {
 			p.Init(0, conn)
 			fromPub, toPub, data, _, err := p.ReceiveData()
 			if err != nil {
-				dialog.ShowError(err, w)
+				fyne.Do(func() { dialog.ShowError(err, w) })
 				return
 			}
 
 			// 3. Update UI
-			keyFile = data
-			crc0 := hex.EncodeToString(Opsec.Crc32(data))
-			crc1 := hex.EncodeToString(Opsec.Crc32(fromPub))
-			crc2 := hex.EncodeToString(Opsec.Crc32(toPub))
-			lbl0.SetText(fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2))
+			fyne.Do(func() {
+				keyFile = data
+				crc0 := hex.EncodeToString(Opsec.Crc32(data))
+				crc1 := hex.EncodeToString(Opsec.Crc32(fromPub))
+				crc2 := hex.EncodeToString(Opsec.Crc32(toPub))
+				lbl0.SetText(fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2))
+			})
 		}()
 	})
 	box0 := container.NewBorder(nil, nil, container.NewHBox(btn0a, btn0b), nil, ent0)

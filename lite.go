@@ -277,7 +277,7 @@ func main() {
 	case "trim":
 		err = f_trim()
 	case "version":
-		fmt.Println("2026 @k-atusa [USAG] AFT-lite v0.1") // version indicator
+		fmt.Println("2026 @k-atusa [USAG] AFT-lite v0.2") // version indicator
 	default: // help
 		fmt.Println("-m mode [import|export|view|trim|version|help] -o outdir -pw password -kf keyfile -msg message")
 		fmt.Println("import: target -> outdir +(pw, kf, msg)")

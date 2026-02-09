@@ -34,7 +34,7 @@ CLI version does not support file transfer function. However, trim function is s
 | Delete | Deletes the selected item from the vault. | 선택 항목을 삭제합니다. |
 | Send | Transfers a file in "KeyFile" mode (partial data). | 키 파일 모드로 파일을 전송합니다. |
 | Share | Transfers a file in "Lossless" mode (complete data). | 무손실 모드로 파일을 전송합니다. |
-| Reset Password | Resets the vault password without changing public keys. | 볼트의 비밀번호를 재설정합니다. 공개키는 교체되지 않습니다. |
+| Reset Password | Resets the vault password **without changing public keys.** | 볼트의 비밀번호를 재설정합니다. **공개키는 교체되지 않습니다.** |
 | Extend | Extends the login session. | 로그인 세션을 연장합니다. |
 | Logout | Terminates the login session. | 로그인 세션을 종료합니다. |
 

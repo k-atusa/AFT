@@ -1,4 +1,4 @@
-# AFT-desktop v0.2
+# AFT-desktop v0.3
 
 project USAG: Advanced File Transfer desktop version
 

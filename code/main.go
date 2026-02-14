@@ -32,6 +32,8 @@ import (
 )
 
 // ===== theme =====
+var SizeAmpl float32 = 1.0
+
 type U1Theme struct{}
 
 func (m U1Theme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
@@ -46,11 +48,12 @@ func (m U1Theme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) colo
 
 func (m U1Theme) Font(s fyne.TextStyle) fyne.Resource     { return theme.DefaultTheme().Font(s) }
 func (m U1Theme) Icon(n fyne.ThemeIconName) fyne.Resource { return theme.DefaultTheme().Icon(n) }
-func (m U1Theme) Size(n fyne.ThemeSizeName) float32       { return theme.DefaultTheme().Size(n) }
+func (m U1Theme) Size(n fyne.ThemeSizeName) float32       { return theme.DefaultTheme().Size(n) * SizeAmpl }
 
 // ===== config =====
 type U1Config struct {
 	AutoExpire int      `json:"autoexpire"`
+	Size       float32  `json:"sizeampl"`
 	Shortcuts  []string `json:"shortcuts"`
 }
 
@@ -75,13 +78,16 @@ func (c *U1Config) Load() error {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			c.Shortcuts = []string{}
 			c.AutoExpire = 20
+			c.Size = 1.0
+			c.Shortcuts = []string{}
 			return c.Store()
 		}
 		return err
 	}
-	return json.Unmarshal(data, c)
+	err = json.Unmarshal(data, c)
+	SizeAmpl = c.Size
+	return err
 }
 
 func (c *U1Config) Store() error {
@@ -94,6 +100,84 @@ func (c *U1Config) Store() error {
 		return err
 	}
 	return os.WriteFile(path, data, 0644)
+}
+
+// ===== helper =====
+func kfSelect(w fyne.Window, lbl *widget.Label, keyPtr *[]byte) {
+	dialog.ShowFileOpen(func(r fyne.URIReadCloser, err error) {
+		if err == nil && r != nil {
+			// 1. Read file (max 1024 bytes)
+			defer r.Close()
+			buf := make([]byte, 1024)
+			n, _ := io.ReadFull(r, buf)
+			data := buf[:n]
+
+			// 2. Set Data & Update UI
+			*keyPtr = data
+			crc := hex.EncodeToString(Opsec.Crc32(data))
+			lbl.SetText(fmt.Sprintf("[%dB, %s] %s", n, crc, r.URI().Name()))
+		} else {
+			*keyPtr = nil
+			lbl.SetText("[0B 00000000] keyfile not selected")
+		}
+	}, w)
+}
+
+func kfReceive(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *[]byte) {
+	// 1. Get IP Address
+	ips, err := GetIPs(true)
+	if err != nil {
+		dialog.ShowError(err, w)
+		return
+	}
+	port := "8001"
+	if portEnt.Text != "" {
+		port = portEnt.Text
+	}
+	for i, r := range ips {
+		ips[i] = r + ":" + port
+	}
+	dialog.ShowInformation("IP Address", strings.Join(ips, "\n"), w)
+
+	// 2. Receive KeyFile
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				os.WriteFile("aft-panic.txt", []byte(fmt.Sprint(r)), 0644)
+			}
+		}()
+
+		listener, err := net.Listen("tcp", ":"+port)
+		if err != nil {
+			fyne.Do(func() { dialog.ShowError(err, w) })
+			return
+		}
+		defer listener.Close()
+		listener.(*net.TCPListener).SetDeadline(time.Now().Add(90 * time.Second)) // 90s timeout
+		conn, err := listener.Accept()
+		if err != nil {
+			fyne.Do(func() { dialog.ShowError(err, w) })
+			return
+		}
+		defer conn.Close()
+
+		p := new(TPprotocol)
+		p.Init(0, conn)
+		fromPub, toPub, data, _, err := p.ReceiveData()
+		if err != nil {
+			fyne.Do(func() { dialog.ShowError(err, w) })
+			return
+		}
+
+		// 3. Update UI
+		fyne.Do(func() {
+			*keyPtr = data
+			crc0 := hex.EncodeToString(Opsec.Crc32(data))
+			crc1 := hex.EncodeToString(Opsec.Crc32(fromPub))
+			crc2 := hex.EncodeToString(Opsec.Crc32(toPub))
+			lbl.SetText(fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2))
+		})
+	}()
 }
 
 // ===== login =====
@@ -121,7 +205,7 @@ func (l *LoginPage) Main(c *U1Config, v *AVault) {
 	l.App.Settings().SetTheme(&U1Theme{})
 	l.Window = l.App.NewWindow("AFT Vault - Login")
 	l.Fill()
-	l.Window.Resize(fyne.NewSize(720, 480))
+	l.Window.Resize(fyne.NewSize(720*SizeAmpl, 480*SizeAmpl))
 	l.Window.CenterOnScreen()
 	if err != nil {
 		dialog.ShowError(fmt.Errorf("Config Load Fail: %s", err), l.Window)
@@ -156,80 +240,12 @@ func (l *LoginPage) Fill() {
 	// group1: keyfile selection
 	lbl1 := widget.NewLabel("[0B 00000000] keyfile not selected")
 	btn1a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() {
-		dialog.ShowFileOpen(func(r fyne.URIReadCloser, err error) {
-			if err == nil && r != nil {
-				// 1. Read file (max 1024 bytes)
-				file, err := os.Open(r.URI().Path())
-				if err != nil {
-					dialog.ShowError(err, l.Window)
-					return
-				}
-				defer file.Close()
-				buf := make([]byte, 1024)
-				n, _ := io.ReadFull(file, buf)
-				data := buf[:n]
-
-				// 2. Set Data & Update UI
-				l.KeyFile = data
-				crc := hex.EncodeToString(Opsec.Crc32(data))
-				lbl1.SetText(fmt.Sprintf("[%dB, %s] %s", n, crc, filepath.Base(r.URI().Path())))
-			} else {
-				l.KeyFile = nil
-				lbl1.SetText("[0B 00000000] keyfile not selected")
-			}
-		}, l.Window)
+		kfSelect(l.Window, lbl1, &l.KeyFile)
 	})
 	ent1 := widget.NewEntry()
 	ent1.SetPlaceHolder("port: 8001")
 	btn1b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() {
-		// 1. Get IP Address
-		ips, err := GetIPs(true)
-		if err != nil {
-			dialog.ShowError(err, l.Window)
-			return
-		}
-		port := "8001"
-		if ent1.Text != "" {
-			port = ent1.Text
-		}
-		for i, r := range ips {
-			ips[i] = r + ":" + port
-		}
-		dialog.ShowInformation("IP Address", strings.Join(ips, "\n"), l.Window)
-
-		// 2. Receive KeyFile
-		go func() {
-			listener, err := net.Listen("tcp", ":"+port)
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, l.Window) })
-				return
-			}
-			defer listener.Close()
-			listener.(*net.TCPListener).SetDeadline(time.Now().Add(90 * time.Second)) // 90s timeout
-			conn, err := listener.Accept()
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, l.Window) })
-				return
-			}
-			defer conn.Close()
-
-			p := new(TPprotocol)
-			p.Init(0, conn)
-			fromPub, toPub, data, _, err := p.ReceiveData()
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, l.Window) })
-				return
-			}
-
-			// 3. Update UI
-			fyne.Do(func() {
-				l.KeyFile = data
-				crc0 := hex.EncodeToString(Opsec.Crc32(data))
-				crc1 := hex.EncodeToString(Opsec.Crc32(fromPub))
-				crc2 := hex.EncodeToString(Opsec.Crc32(toPub))
-				lbl1.SetText(fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2))
-			})
-		}()
+		kfReceive(l.Window, lbl1, ent1, &l.KeyFile)
 	})
 	box1 := container.NewBorder(nil, nil, container.NewHBox(btn1a, btn1b), nil, ent1)
 
@@ -376,7 +392,7 @@ func (v *ViewPage) Main(c *U1Config, av *AVault) {
 	}
 	v.Window = v.App.NewWindow("AFT Vault - Viewer")
 	v.Fill()
-	v.Window.Resize(fyne.NewSize(800, 480))
+	v.Window.Resize(fyne.NewSize(800*SizeAmpl, 480*SizeAmpl))
 	v.Window.CenterOnScreen()
 	v.Window.Show()
 }
@@ -439,7 +455,7 @@ func (v *ViewPage) Fill() {
 
 	// group3: bottom bar
 	lbl3 := widget.NewLabel(fmt.Sprintf("%s | %s | %s", v.Vault.Algo, v.Vault.Ext, v.Vault.Path))
-	v.LblSelected = widget.NewLabel("2026 @k-atusa [USAG] AFT v0.2") // version indicator
+	v.LblSelected = widget.NewLabel("2026 @k-atusa [USAG] AFT v0.3") // version indicator
 	var box3a []fyne.CanvasObject = []fyne.CanvasObject{lbl3, v.LblSelected, layout.NewSpacer()}
 
 	// group4: bottom right bar
@@ -497,7 +513,7 @@ func (v *ViewPage) UpdateTimerLoop() {
 	for {
 		time.Sleep(1 * time.Second)
 		remaining := time.Until(v.LogoutTime)
-		if remaining <= 0 {
+		if remaining <= 0 || v.Vault == nil {
 			break
 		}
 		if v.LblTimer != nil {
@@ -809,80 +825,20 @@ func (v *ViewPage) Delete() {
 func (v *ViewPage) ResetPW() {
 	// Create new window for password reset
 	w := v.App.NewWindow("Reset Password")
-	w.Resize(fyne.NewSize(400, 300))
+	w.Resize(fyne.NewSize(400*SizeAmpl, 300*SizeAmpl))
 	w.CenterOnScreen()
 
 	// group0: keyfile selection
 	var keyFile []byte
 	lbl0 := widget.NewLabel("[0B 00000000] keyfile not selected")
 	btn0a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() {
-		dialog.ShowFileOpen(func(r fyne.URIReadCloser, err error) {
-			if err == nil && r != nil {
-				file, err := os.Open(r.URI().Path())
-				if err != nil {
-					dialog.ShowError(err, w)
-					return
-				}
-				defer file.Close()
-				buf := make([]byte, 1024)
-				n, _ := io.ReadFull(file, buf)
-				keyFile = buf[:n]
-				lbl0.SetText(fmt.Sprintf("[%dB %s] %s", n, hex.EncodeToString(Opsec.Crc32(keyFile)), filepath.Base(r.URI().Path())))
-			}
-		}, w)
+		kfSelect(w, lbl0, &keyFile)
 	})
 
 	ent0 := widget.NewEntry()
 	ent0.SetPlaceHolder("port: 8001")
 	btn0b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() {
-		// 1. Get IP Address
-		ips, err := GetIPs(true)
-		if err != nil {
-			dialog.ShowError(err, w)
-			return
-		}
-		port := "8001"
-		if ent0.Text != "" {
-			port = ent0.Text
-		}
-		for i, r := range ips {
-			ips[i] = r + ":" + port
-		}
-		dialog.ShowInformation("IP Address", strings.Join(ips, "\n"), w)
-
-		// 2. Receive KeyFile
-		go func() {
-			listener, err := net.Listen("tcp", ":"+port)
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
-			defer listener.Close()
-			listener.(*net.TCPListener).SetDeadline(time.Now().Add(90 * time.Second)) // 90s timeout
-			conn, err := listener.Accept()
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
-			defer conn.Close()
-
-			p := new(TPprotocol)
-			p.Init(0, conn)
-			fromPub, toPub, data, _, err := p.ReceiveData()
-			if err != nil {
-				fyne.Do(func() { dialog.ShowError(err, w) })
-				return
-			}
-
-			// 3. Update UI
-			fyne.Do(func() {
-				keyFile = data
-				crc0 := hex.EncodeToString(Opsec.Crc32(data))
-				crc1 := hex.EncodeToString(Opsec.Crc32(fromPub))
-				crc2 := hex.EncodeToString(Opsec.Crc32(toPub))
-				lbl0.SetText(fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2))
-			})
-		}()
+		kfReceive(w, lbl0, ent0, &keyFile)
 	})
 	box0 := container.NewBorder(nil, nil, container.NewHBox(btn0a, btn0b), nil, ent0)
 

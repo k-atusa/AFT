@@ -1,14 +1,13 @@
-// test798c : project USAG AFT-desktop gui
+// test798c : project USAG AFT-desktop main
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"image/color"
 	"io"
-	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,54 +27,19 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/k-atusa/USAG-Lib/Bencrypt"
 	"github.com/k-atusa/USAG-Lib/Opsec"
 )
 
-// ===== theme =====
-var SizeAmpl float32 = 1.0
-
-type U1Theme struct{}
-
-func (m U1Theme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) color.Color {
-	if name == theme.ColorNameForeground { // change only foreground color
-		if variant == theme.VariantDark {
-			return color.White
-		}
-		return color.Black
-	}
-	return theme.DefaultTheme().Color(name, variant)
-}
-
-func (m U1Theme) Font(s fyne.TextStyle) fyne.Resource     { return theme.DefaultTheme().Font(s) }
-func (m U1Theme) Icon(n fyne.ThemeIconName) fyne.Resource { return theme.DefaultTheme().Icon(n) }
-func (m U1Theme) Size(n fyne.ThemeSizeName) float32       { return theme.DefaultTheme().Size(n) * SizeAmpl }
-
 // ===== config =====
 type U1Config struct {
-	AutoExpire int      `json:"autoexpire"`
-	Size       float32  `json:"sizeampl"`
+	AutoExpire int      `json:"expire"`
+	Size       float32  `json:"size"`
 	Shortcuts  []string `json:"shortcuts"`
 }
 
-func (c *U1Config) GetPath() (string, error) {
-	// find actual program path
-	exePath, err := os.Executable()
-	if err != nil {
-		return "./config.json", err
-	}
-	realPath, err := filepath.EvalSymlinks(exePath)
-	if err != nil {
-		realPath = exePath
-	}
-	return filepath.Join(filepath.Dir(realPath), "config.json"), nil
-}
-
 func (c *U1Config) Load() error {
-	path, err := c.GetPath()
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(filepath.Join(GetPath(), "config.json"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			c.AutoExpire = 20
@@ -86,105 +50,22 @@ func (c *U1Config) Load() error {
 		return err
 	}
 	err = json.Unmarshal(data, c)
-	SizeAmpl = c.Size
+	FyneSize = c.Size
 	return err
 }
 
 func (c *U1Config) Store() error {
-	path, err := c.GetPath()
-	if err != nil {
-		return err
-	}
 	data, err := json.MarshalIndent(c, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0644)
-}
-
-// ===== helper =====
-func kfSelect(w fyne.Window, lbl *widget.Label, keyPtr *[]byte) {
-	dialog.ShowFileOpen(func(r fyne.URIReadCloser, err error) {
-		if err == nil && r != nil {
-			// 1. Read file (max 1024 bytes)
-			defer r.Close()
-			buf := make([]byte, 1024)
-			n, _ := io.ReadFull(r, buf)
-			data := buf[:n]
-
-			// 2. Set Data & Update UI
-			*keyPtr = data
-			crc := hex.EncodeToString(Opsec.Crc32(data))
-			lbl.SetText(fmt.Sprintf("[%dB, %s] %s", n, crc, r.URI().Name()))
-		} else {
-			*keyPtr = nil
-			lbl.SetText("[0B 00000000] keyfile not selected")
-		}
-	}, w)
-}
-
-func kfReceive(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *[]byte) {
-	// 1. Get IP Address
-	ips, err := GetIPs(true)
-	if err != nil {
-		dialog.ShowError(err, w)
-		return
-	}
-	port := "8001"
-	if portEnt.Text != "" {
-		port = portEnt.Text
-	}
-	for i, r := range ips {
-		ips[i] = r + ":" + port
-	}
-	dialog.ShowInformation("IP Address", strings.Join(ips, "\n"), w)
-
-	// 2. Receive KeyFile
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				os.WriteFile("aft-panic.txt", []byte(fmt.Sprint(r)), 0644)
-			}
-		}()
-
-		listener, err := net.Listen("tcp", ":"+port)
-		if err != nil {
-			fyne.Do(func() { dialog.ShowError(err, w) })
-			return
-		}
-		defer listener.Close()
-		listener.(*net.TCPListener).SetDeadline(time.Now().Add(90 * time.Second)) // 90s timeout
-		conn, err := listener.Accept()
-		if err != nil {
-			fyne.Do(func() { dialog.ShowError(err, w) })
-			return
-		}
-		defer conn.Close()
-
-		p := new(TPprotocol)
-		p.Init(0, conn)
-		fromPub, toPub, data, _, err := p.ReceiveData()
-		if err != nil {
-			fyne.Do(func() { dialog.ShowError(err, w) })
-			return
-		}
-
-		// 3. Update UI
-		fyne.Do(func() {
-			*keyPtr = data
-			crc0 := hex.EncodeToString(Opsec.Crc32(data))
-			crc1 := hex.EncodeToString(Opsec.Crc32(fromPub))
-			crc2 := hex.EncodeToString(Opsec.Crc32(toPub))
-			lbl.SetText(fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2))
-		})
-	}()
+	return os.WriteFile(filepath.Join(GetPath(), "config.json"), data, 0644)
 }
 
 // ===== login =====
 type LoginPage struct {
 	App    fyne.App
 	Window fyne.Window
-
 	Config *U1Config
 	Vault  *AVault
 
@@ -205,7 +86,7 @@ func (l *LoginPage) Main(c *U1Config, v *AVault) {
 	l.App.Settings().SetTheme(&U1Theme{})
 	l.Window = l.App.NewWindow("AFT Vault - Login")
 	l.Fill()
-	l.Window.Resize(fyne.NewSize(720*SizeAmpl, 480*SizeAmpl))
+	l.Window.Resize(fyne.NewSize(720*FyneSize, 480*FyneSize))
 	l.Window.CenterOnScreen()
 	if err != nil {
 		dialog.ShowError(fmt.Errorf("Config Load Fail: %s", err), l.Window)
@@ -239,14 +120,10 @@ func (l *LoginPage) Fill() {
 
 	// group1: keyfile selection
 	lbl1 := widget.NewLabel("[0B 00000000] keyfile not selected")
-	btn1a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() {
-		kfSelect(l.Window, lbl1, &l.KeyFile)
-	})
+	btn1a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(l.Window, lbl1, &l.KeyFile) })
 	ent1 := widget.NewEntry()
 	ent1.SetPlaceHolder("port: 8001")
-	btn1b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() {
-		kfReceive(l.Window, lbl1, ent1, &l.KeyFile)
-	})
+	btn1b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { ReceiveKF(l.Window, lbl1, ent1, &l.KeyFile) })
 	box1 := container.NewBorder(nil, nil, container.NewHBox(btn1a, btn1b), nil, ent1)
 
 	// group2: password and login
@@ -294,9 +171,9 @@ func (l *LoginPage) Fill() {
 	sel5a := widget.NewSelect([]string{"webp", "png", "bin"}, func(s string) { l.ImgType = s })
 	sel5a.SetSelected("webp")
 	l.ImgType = "webp"
-	sel5b := widget.NewSelect([]string{"ecc1", "rsa1"}, func(s string) { l.KeyAlgo = s })
-	sel5b.SetSelected("ecc1")
-	l.KeyAlgo = "ecc1"
+	sel5b := widget.NewSelect([]string{"arg1", "pbk1"}, func(s string) { l.KeyAlgo = s })
+	sel5b.SetSelected("arg1")
+	l.KeyAlgo = "arg1"
 
 	// group6: generate new vault
 	ent6 := widget.NewEntry()
@@ -312,20 +189,18 @@ func (l *LoginPage) Fill() {
 		msg := ent6.Text
 
 		// 2. set config
-		v := &AVault{Path: l.NewPath,
-			Limit:    512 * 1048576,
-			Algo:     l.KeyAlgo,
+		v := &AVault{
+			Path:     l.NewPath,
+			limit:    512 * 1048576,
+			AlgoType: l.KeyAlgo,
 			Ext:      l.ImgType,
+			VaultKey: hex.EncodeToString(Bencrypt.Random(32)),
 			TreeView: make(map[string][]string),
 			PtoCtbl:  make(map[string]string),
-			CtoPtbl:  make(map[string]string)}
+			CtoPtbl:  make(map[string]string),
+		}
 
 		// 3. generate vault
-		err := v.NewKeypair()
-		if err != nil {
-			dialog.ShowError(err, l.Window)
-			return
-		}
 		if err := v.StoreAccount(pw, kf, msg); err != nil {
 			dialog.ShowError(err, l.Window)
 			return
@@ -359,8 +234,7 @@ func (l *LoginPage) Fill() {
 
 func (l *LoginPage) switchToViewer() {
 	v := new(ViewPage)
-	v.App = l.App
-	v.Main(l.Config, l.Vault)
+	v.Main(l.App, l.Config, l.Vault)
 	l.Window.Close()
 }
 
@@ -368,31 +242,27 @@ func (l *LoginPage) switchToViewer() {
 type ViewPage struct {
 	App    fyne.App
 	Window fyne.Window
+	Vault  *AVault
+	Config *U1Config
 
-	ContentArea *fyne.Container
-	Tree        *widget.Tree
+	ContentView *fyne.Container
+	TreeView    *widget.Tree
+
 	LogoutTimer *time.Timer
 	LogoutTime  time.Time
 	LblTimer    *widget.Label
-	LblSelected *widget.Label
 
-	Vault        *AVault
-	AutoExpire   bool
-	ExpireMinute int
-	CurPath      string
+	LblSelected *widget.Label
+	CurPath     string
 }
 
-func (v *ViewPage) Main(c *U1Config, av *AVault) {
+func (v *ViewPage) Main(a fyne.App, c *U1Config, av *AVault) {
+	v.App = a
 	v.Vault = av
-	if c.AutoExpire > 0 {
-		v.AutoExpire = true
-		v.ExpireMinute = c.AutoExpire
-	} else {
-		v.AutoExpire = false
-	}
+	v.Config = c
 	v.Window = v.App.NewWindow("AFT Vault - Viewer")
 	v.Fill()
-	v.Window.Resize(fyne.NewSize(800*SizeAmpl, 480*SizeAmpl))
+	v.Window.Resize(fyne.NewSize(800*FyneSize, 480*FyneSize))
 	v.Window.CenterOnScreen()
 	v.Window.Show()
 }
@@ -407,14 +277,14 @@ func (v *ViewPage) Fill() {
 		widget.NewButtonWithIcon("Rename", theme.DocumentCreateIcon(), v.Rename),
 		widget.NewButtonWithIcon("Delete", theme.DeleteIcon(), v.Delete),
 		widget.NewSeparator(),
-		widget.NewButtonWithIcon("Send", theme.UploadIcon(), func() { v.transfer(true) }),
-		widget.NewButtonWithIcon("Share", theme.MailSendIcon(), func() { v.transfer(false) }),
+		widget.NewButtonWithIcon("TrSend", theme.MailSendIcon(), func() { v.transfer(true) }),
+		widget.NewButtonWithIcon("Send", theme.MailSendIcon(), func() { v.transfer(false) }),
 		layout.NewSpacer(),
 		widget.NewButtonWithIcon("Reset PW", theme.AccountIcon(), v.ResetPW),
 	)
 
 	// group1: left tree
-	v.Tree = widget.NewTree(
+	v.TreeView = widget.NewTree(
 		func(id string) []string {
 			names := v.Vault.TreeView[id]
 			paths := make([]string, len(names))
@@ -447,19 +317,19 @@ func (v *ViewPage) Fill() {
 			}
 		},
 	)
-	v.Tree.OnSelected = v.selected
+	v.TreeView.OnSelected = v.selected
 
 	// group2: right content area
-	v.ContentArea = container.NewStack(widget.NewLabelWithStyle("Select a file to view", fyne.TextAlignCenter, fyne.TextStyle{Italic: true}))
-	scroll2 := container.NewScroll(v.ContentArea)
+	v.ContentView = container.NewStack(widget.NewLabelWithStyle("Select a file to view", fyne.TextAlignCenter, fyne.TextStyle{Italic: true}))
+	scroll2 := container.NewScroll(v.ContentView)
 
 	// group3: bottom bar
-	lbl3 := widget.NewLabel(fmt.Sprintf("%s | %s | %s", v.Vault.Algo, v.Vault.Ext, v.Vault.Path))
-	v.LblSelected = widget.NewLabel("2026 @k-atusa [USAG] AFT v0.3") // version indicator
+	lbl3 := widget.NewLabel(fmt.Sprintf("%s | %s | %s", v.Vault.AlgoType, v.Vault.Ext, v.Vault.Path))
+	v.LblSelected = widget.NewLabel(AFT_VERSION)
 	var box3a []fyne.CanvasObject = []fyne.CanvasObject{lbl3, v.LblSelected, layout.NewSpacer()}
 
 	// group4: bottom right bar
-	if v.AutoExpire {
+	if v.Config.AutoExpire > 0 {
 		v.LblTimer = widget.NewLabel("Expire in 00:00")
 		btnExtend := widget.NewButton("Extend", func() { v.ResetTimer() })
 		btnExtend.Importance = widget.HighImportance
@@ -478,27 +348,27 @@ func (v *ViewPage) Fill() {
 	box3b := container.NewHBox(box3a...)
 
 	// group5: main layout
-	split := container.NewHSplit(v.Tree, scroll2)
+	split := container.NewHSplit(v.TreeView, scroll2)
 	split.Offset = 0.3
 	box5 := container.NewBorder(box0, box3b, nil, nil, split)
 	v.Window.SetContent(box5)
 
 	// Start Timer
-	if v.AutoExpire {
+	if v.Config.AutoExpire > 0 {
 		v.ResetTimer()
 		go v.UpdateTimerLoop()
 	}
 }
 
 func (v *ViewPage) ResetTimer() {
-	if !v.AutoExpire {
+	if v.Config.AutoExpire <= 0 {
 		return
 	}
 	if v.LogoutTimer != nil {
 		v.LogoutTimer.Stop()
 	}
-	v.LogoutTime = time.Now().Add(time.Duration(v.ExpireMinute) * time.Minute)
-	v.LogoutTimer = time.AfterFunc(time.Duration(v.ExpireMinute)*time.Minute, func() {
+	v.LogoutTime = time.Now().Add(time.Duration(v.Config.AutoExpire) * time.Minute)
+	v.LogoutTimer = time.AfterFunc(time.Duration(v.Config.AutoExpire)*time.Minute, func() {
 		fyne.Do(func() {
 			v.Vault = nil
 			v.Window.Close()
@@ -507,7 +377,7 @@ func (v *ViewPage) ResetTimer() {
 }
 
 func (v *ViewPage) UpdateTimerLoop() {
-	if !v.AutoExpire {
+	if v.Config.AutoExpire <= 0 {
 		return
 	}
 	for {
@@ -528,44 +398,45 @@ func (v *ViewPage) UpdateTimerLoop() {
 func (v *ViewPage) selected(path string) {
 	v.LblSelected.SetText(path)
 	v.CurPath = path
-	v.ContentArea.Objects = nil // Clear current content
-	defer v.ContentArea.Refresh()
+	v.ContentView.Objects = []fyne.CanvasObject{widget.NewLabel("Loading...")}
+	v.ContentView.Refresh()
+	defer v.ContentView.Refresh()
 
 	// 1. Check if Folder
 	if strings.HasSuffix(path, "/") {
-		v.ContentArea.Objects = []fyne.CanvasObject{widget.NewLabel("Folder: " + path)}
+		v.ContentView.Objects = []fyne.CanvasObject{widget.NewLabel("Folder: " + path)}
 		return
 	}
 
 	// 2. Check File Size (via Cipher Path)
 	cipherName, ok := v.Vault.PtoCtbl[path]
 	if !ok {
-		v.ContentArea.Objects = []fyne.CanvasObject{widget.NewLabel("File not found in name table")}
+		v.ContentView.Objects = []fyne.CanvasObject{widget.NewLabel("File not found in name table")}
 		return
 	}
 	info, err := os.Stat(filepath.Join(v.Vault.Path, cipherName))
 	if err != nil {
-		v.ContentArea.Objects = []fyne.CanvasObject{widget.NewLabel("Error stating file: " + err.Error())}
+		v.ContentView.Objects = []fyne.CanvasObject{widget.NewLabel("Error stating file: " + err.Error())}
 		return
 	}
 	ext := strings.ToLower(filepath.Ext(path))
 	isImg := (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" || ext == ".gif")
 	if !isImg && info.Size() > 4*1048576 {
-		v.ContentArea.Objects = []fyne.CanvasObject{widget.NewLabel("Large File (4MB+)")}
+		v.ContentView.Objects = []fyne.CanvasObject{widget.NewLabel("Large File (4MB+)")}
 		return
 	}
 
 	// 3. Read and Display
 	data, err := v.Vault.Read(path)
 	if err != nil {
-		v.ContentArea.Objects = []fyne.CanvasObject{widget.NewLabel("Error reading file: " + err.Error())}
+		v.ContentView.Objects = []fyne.CanvasObject{widget.NewLabel("Error reading file: " + err.Error())}
 		return
 	}
 
 	if isImg {
 		img := canvas.NewImageFromResource(fyne.NewStaticResource(filepath.Base(path), data))
 		img.FillMode = canvas.ImageFillContain
-		v.ContentArea.Objects = []fyne.CanvasObject{img}
+		v.ContentView.Objects = []fyne.CanvasObject{img}
 	} else {
 		entry := widget.NewMultiLineEntry()
 		entry.TextStyle = fyne.TextStyle{Monospace: true}
@@ -580,7 +451,7 @@ func (v *ViewPage) selected(path string) {
 		})
 
 		content := container.NewBorder(nil, btnSave, nil, nil, entry)
-		v.ContentArea.Objects = []fyne.CanvasObject{content}
+		v.ContentView.Objects = []fyne.CanvasObject{content}
 	}
 }
 
@@ -613,43 +484,42 @@ func (v *ViewPage) transfer(cut bool) {
 			data = data[:1024]
 		}
 
+		// 3. Start Transfer
 		go func() {
-			// 3. Connect to receiver
-			var conn net.Conn
-			var err error
-			for range 5 { // 5 attempts
-				conn, err = net.DialTimeout("tcp", addr, 10*time.Second)
-				if err == nil {
-					break
+			defer func() {
+				if r := recover(); r != nil {
+					os.WriteFile("panic-log.txt", []byte(fmt.Sprintf("panic while main.transfer: %v", r)), 0644)
 				}
-				time.Sleep(3 * time.Second)
-			}
+			}()
+
+			// 3-1. Make TCP Socket
+			sock := new(TCPsocket)
+			err := sock.MakeConnection(addr)
+			defer sock.Close()
 			if err != nil {
 				fyne.Do(func() { dialog.ShowError(err, v.Window) })
 				return
 			}
-			defer conn.Close()
 
-			// 4. Initialize Protocol
-			var mode uint16 = 0
-			if v.Vault.Algo == "rsa1" {
-				mode |= MODE_LEGACY
-				mode |= MODE_RSA_4K
+			// 3-2. Accept Connection
+			tp := new(TP1)
+			switch v.Vault.AlgoType {
+			case "arg1":
+				tp.Init(MODE_GCM1|MODE_ECC1, true, sock.Conn)
+			case "pbk1":
+				tp.Init(MODE_GCM1|MODE_RSA1_2K, true, sock.Conn)
+			default:
+				tp.Init(0, true, sock.Conn)
 			}
-			p := new(TPprotocol)
-			p.Init(uint16(mode), conn)
-
-			// 5. Send Data
-			fromPub, toPub, err := p.SendData(data, "")
+			fromPub, toPub, err := tp.Send(bytes.NewReader(data), int64(len(data)), "")
 			if err != nil {
 				fyne.Do(func() { dialog.ShowError(err, v.Window) })
 				return
 			}
-			crc0 := hex.EncodeToString(Opsec.Crc32(data))
-			crc1 := hex.EncodeToString(Opsec.Crc32(fromPub))
-			crc2 := hex.EncodeToString(Opsec.Crc32(toPub))
+
+			// 4. Update UI
 			fyne.Do(func() {
-				dialog.ShowInformation("Transfer", fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crc0, crc1, crc2), v.Window)
+				dialog.ShowInformation("Transfer", fmt.Sprintf("[%dB, %s] from %s to %s", len(data), Opsec.Crc32(data), Opsec.Crc32(fromPub), Opsec.Crc32(toPub)), v.Window)
 			})
 		}()
 	}, v.Window)
@@ -683,7 +553,7 @@ func (v *ViewPage) ImportFile() {
 				dialog.ShowError(err, v.Window)
 				return
 			}
-			v.Tree.Refresh()
+			v.TreeView.Refresh()
 		}
 	}, v.Window)
 }
@@ -695,7 +565,7 @@ func (v *ViewPage) ImportFolder() {
 				dialog.ShowError(err, v.Window)
 				return
 			}
-			v.Tree.Refresh()
+			v.TreeView.Refresh()
 		}
 	}, v.Window)
 }
@@ -764,7 +634,7 @@ func (v *ViewPage) Rename() {
 	input := widget.NewEntry()
 	if strings.HasSuffix(v.CurPath, "/") {
 		input.SetText(v.CurPath[:len(v.CurPath)-1])
-	} else if strings.Index(v.CurPath, "/") == -1 {
+	} else if !strings.Contains(v.CurPath, "/") {
 		input.SetText(v.CurPath)
 	} else {
 		input.SetText(v.CurPath[strings.LastIndex(v.CurPath, "/")+1:])
@@ -797,7 +667,7 @@ func (v *ViewPage) Rename() {
 				dialog.ShowError(err, v.Window)
 				return
 			}
-			v.Tree.Refresh()
+			v.TreeView.Refresh()
 			v.CurPath = newPath // Update current path
 			v.LblSelected.SetText(newPath)
 		}
@@ -815,9 +685,9 @@ func (v *ViewPage) Delete() {
 			}
 			v.CurPath = ""
 			v.LblSelected.SetText("")
-			v.ContentArea.Objects = []fyne.CanvasObject{widget.NewLabelWithStyle("Select a file to view", fyne.TextAlignCenter, fyne.TextStyle{Italic: true})}
-			v.ContentArea.Refresh()
-			v.Tree.Refresh()
+			v.ContentView.Objects = []fyne.CanvasObject{widget.NewLabelWithStyle("Select a file to view", fyne.TextAlignCenter, fyne.TextStyle{Italic: true})}
+			v.ContentView.Refresh()
+			v.TreeView.Refresh()
 		}
 	}, v.Window)
 }
@@ -825,21 +695,17 @@ func (v *ViewPage) Delete() {
 func (v *ViewPage) ResetPW() {
 	// Create new window for password reset
 	w := v.App.NewWindow("Reset Password")
-	w.Resize(fyne.NewSize(400*SizeAmpl, 300*SizeAmpl))
+	w.Resize(fyne.NewSize(400*FyneSize, 300*FyneSize))
 	w.CenterOnScreen()
 
 	// group0: keyfile selection
 	var keyFile []byte
 	lbl0 := widget.NewLabel("[0B 00000000] keyfile not selected")
-	btn0a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() {
-		kfSelect(w, lbl0, &keyFile)
-	})
+	btn0a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(w, lbl0, &keyFile) })
 
 	ent0 := widget.NewEntry()
 	ent0.SetPlaceHolder("port: 8001")
-	btn0b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() {
-		kfReceive(w, lbl0, ent0, &keyFile)
-	})
+	btn0b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { ReceiveKF(w, lbl0, ent0, &keyFile) })
 	box0 := container.NewBorder(nil, nil, container.NewHBox(btn0a, btn0b), nil, ent0)
 
 	// group1: password entry
@@ -883,7 +749,7 @@ func (v *ViewPage) ResetPW() {
 func main() {
 	defer func() {
 		if r := recover(); r != nil {
-			os.WriteFile("aft-panic.txt", []byte(fmt.Sprint(r)), 0644)
+			os.WriteFile("panic-log.txt", []byte(fmt.Sprintf("panic while main.main: %v", r)), 0644)
 		}
 	}()
 	var p LoginPage

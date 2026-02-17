@@ -8,12 +8,13 @@ project USAG: Advanced File Transfer desktop version
 
 | Option | Input | Info | 정보 |
 | :--- | :--- | :--- | :--- |
-| -m | import, export, view, trim, version | Sets the working mode. | 작업 모드를 설정합니다. |
+| -m | import, export, view, trim | Sets the working mode. | 작업 모드를 설정합니다. |
 | -o | dirpath | Sets the output path. | 출력 경로를 설정합니다. |
+| -algo | arg1, pbk1 | Sets the encryption algorithm. | 암호화 알고리즘을 설정합니다. |
+| -img | webp, png, bin | Sets the image format. | 위장 이미지 형식을 설정합니다. |
 | -pw | text | Sets the password. | 비밀번호를 설정합니다. |
 | -kf | filepath | Sets the key file path. | 키 파일 경로를 설정합니다. |
 | -msg | text | Sets public message of vault. | 저장소의 공개 메세지를 설정합니다. |
-| -legacy | | Enables Legacy Mode (RSA, png). | 레거시 모드(RSA, png)를 킵니다. |
 | | | Argument following the options are interpreted as target path. | 옵션 이후 인자는 타겟 경로로 해석됩니다. |
 
 - import: 타겟 폴더를 암호화하여 새 저장소를 생성합니다. Make new vault by encrypting target folder.
@@ -32,8 +33,8 @@ CLI version does not support file transfer function. However, trim function is s
 | Export | Exports files or folders from the vault to the local system. | 볼트에서 폴더나 파일을 내보냅니다. |
 | Rename | Renames the selected item within the vault. | 선택 항목의 이름을 바꿉니다. |
 | Delete | Deletes the selected item from the vault. | 선택 항목을 삭제합니다. |
-| Send | Transfers a file in "KeyFile" mode (partial data). | 키 파일 모드로 파일을 전송합니다. |
-| Share | Transfers a file in "Lossless" mode (complete data). | 무손실 모드로 파일을 전송합니다. |
+| TrSend | Transfers a file in "KeyFile" mode (partial data). | 키 파일 모드로 파일을 전송합니다. |
+| Send | Transfers a file in "Lossless" mode (complete data). | 무손실 모드로 파일을 전송합니다. |
 | Reset Password | Resets the vault password **without changing public keys.** | 볼트의 비밀번호를 재설정합니다. **공개키는 교체되지 않습니다.** |
 | Extend | Extends the login session. | 로그인 세션을 연장합니다. |
 | Logout | Terminates the login session. | 로그인 세션을 종료합니다. |
@@ -55,28 +56,28 @@ windows cli
 ```bat
 go mod init example.com
 go mod tidy
-go build -ldflags="-s -w" -trimpath -o aftcli.exe lib.go lite.go
+go build -ldflags="-s -w" -trimpath -o aft-lite.exe AFTcore.go lite.go
 ```
 
 linux/mac cli
 ```bash
 go mod init example.com
 go mod tidy
-go build -ldflags="-s -w" -trimpath -o aftcli lib.go lite.go
+go build -ldflags="-s -w" -trimpath -o aft-lite AFTcore.go lite.go
 ```
 
 windows gui
 ```bat
 go mod init example.com
 go mod tidy
-go build -ldflags="-H windowsgui -s -w" -trimpath -o aftgui.exe lib.go main.go
+go build -ldflags="-H windowsgui -s -w" -trimpath -o aft.exe TP1.go GUIext.go AFTcore.go main.go
 ```
 
 linux/mac gui
 ```bash
 go mod init example.com
 go mod tidy
-go build -ldflags="-s -w" -trimpath -o aftgui lib.go main.go
+go build -ldflags="-s -w" -trimpath -o aft TP1.go GUIext.go AFTcore.go main.go
 ```
 
 fyne2 GUI requires C compiler and X11 environment. check and install following packages before build.

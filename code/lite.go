@@ -1,4 +1,4 @@
-// test798b : project USAG AFT-desktop cli
+// test798b : project USAG AFT-desktop lite
 package main
 
 import (
@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/k-atusa/USAG-Lib/Opsec"
+	"github.com/k-atusa/USAG-Lib/Bencrypt"
 )
 
 // command line parser
@@ -18,19 +18,22 @@ type Config struct {
 	Mode     string
 	Target   string
 	Output   string
-	PW       string
-	KF       []byte
-	Msg      string
-	IsLegacy bool
+	AlgoType string
+	ImgType  string
+
+	PW  string
+	KF  []byte
+	Msg string
 }
 
 func (cfg *Config) Init() {
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError) // empty string means auto
-	fs.StringVar(&cfg.Mode, "m", "help", "work mode: import, export, view, trim, version, help")
+	fs.StringVar(&cfg.Mode, "m", "help", "work mode: import, export, view, trim")
 	fs.StringVar(&cfg.Output, "o", "", "output folder")
+	fs.StringVar(&cfg.AlgoType, "algo", "arg1", "algorithm type: pbk1, arg1")
+	fs.StringVar(&cfg.ImgType, "img", "webp", "image type: webp, png, bin")
 	fs.StringVar(&cfg.PW, "pw", "", "password")
 	fs.StringVar(&cfg.Msg, "msg", "", "message")
-	fs.BoolVar(&cfg.IsLegacy, "legacy", false, "use legacy mode (rsa1, png)")
 
 	// get keyfile
 	kfpath := ""
@@ -74,16 +77,15 @@ func f_import() error {
 	}
 
 	// make AVault
-	v := &AVault{Path: Cfg.Output, Limit: 512 * 1048576, TreeView: make(map[string][]string), PtoCtbl: make(map[string]string), CtoPtbl: make(map[string]string)}
-	if Cfg.IsLegacy {
-		v.Algo = "rsa1"
-		v.Ext = "png"
-	} else {
-		v.Algo = "ecc1"
-		v.Ext = "webp"
-	}
-	if err := v.NewKeypair(); err != nil {
-		return err
+	v := &AVault{
+		Path:     Cfg.Output,
+		limit:    512 * 1048576,
+		AlgoType: Cfg.AlgoType,
+		Ext:      Cfg.ImgType,
+		VaultKey: hex.EncodeToString(Bencrypt.Random(32)),
+		TreeView: make(map[string][]string),
+		PtoCtbl:  make(map[string]string),
+		CtoPtbl:  make(map[string]string),
 	}
 	if err := v.StoreAccount(Cfg.PW, Cfg.KF, Cfg.Msg); err != nil {
 		return err
@@ -176,11 +178,10 @@ func f_view() error {
 	// print vault metadata
 	fmt.Println("========== AFT Vault Metadata ==========")
 	fmt.Printf("Message     : %s\n", msg)
-	fmt.Printf("Algorithm   : %s\n", v.Algo)
+	fmt.Printf("Algorithm   : %s\n", v.AlgoType)
 	fmt.Printf("File Format : %s\n", v.Ext)
+	fmt.Printf("Master Key  : %s\n", v.VaultKey)
 	fmt.Printf("Total Items : %d\n", len(v.PtoCtbl))
-	fmt.Printf("Public Key  : %s (%d B)\n", hex.EncodeToString(Opsec.Crc32(v.Public)), len(v.Public))
-	fmt.Printf("Private Key : %s (%d B)\n", hex.EncodeToString(Opsec.Crc32(v.Private)), len(v.Private))
 
 	// print file list
 	fmt.Println("\n========== Files List ==========")
@@ -219,36 +220,43 @@ func f_trim() error {
 		return err
 	}
 
-	// make new key pair
-	oldPub, oldPriv := v.Public, v.Private
-	fmt.Println("Regenerating new key pair...")
-	err = v.NewKeypair()
-	if err != nil {
-		return err
-	}
-	newPub, newPriv := v.Public, v.Private
+	// make new key
+	oldKey := v.VaultKey
+	newKey := hex.EncodeToString(Bencrypt.Random(32))
+	fmt.Println("New vault key created...")
 
 	// re-encrypt all files
-	for plain := range v.PtoCtbl {
+	for plain, cipher := range v.PtoCtbl {
 		if strings.HasSuffix(plain, "/") {
 			continue
 		}
 		fmt.Printf("Re-encrypting: %s\n", plain)
 
-		v.Public, v.Private = oldPub, oldPriv
+		v.VaultKey = oldKey
 		data, err := v.Read(plain)
 		if err != nil {
-			fmt.Printf("    Skip: Decryption failed\n")
+			fmt.Printf("    Skip: Decryption failed (%v)\n", err)
 			continue
 		}
-
-		v.Public, v.Private = newPub, newPriv
+		os.Rename(filepath.Join(v.Path, cipher), filepath.Join(v.Path, cipher+".temp"))
+		v.VaultKey = newKey
 		v.Write(plain, data)
 	}
 
+	// remove old files
+	filepath.Walk(v.Path, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if strings.HasSuffix(path, ".temp") {
+			os.Remove(path)
+		}
+		return nil
+	})
+
 	// save account and name
 	fmt.Println("Saving account and name...")
-	v.Public, v.Private = newPub, newPriv
+	v.VaultKey = newKey
 	err = v.StoreAccount(Cfg.PW, Cfg.KF, msg)
 	if err != nil {
 		return err
@@ -276,10 +284,10 @@ func main() {
 		err = f_view()
 	case "trim":
 		err = f_trim()
-	case "version":
-		fmt.Println("2026 @k-atusa [USAG] AFT-lite v0.3") // version indicator
 	default: // help
-		fmt.Println("-m mode [import|export|view|trim|version|help] -o outdir -pw password -kf keyfile -msg message")
+		fmt.Print(AFT_VERSION + "\n\n")
+		fmt.Println("-m mode [import|export|view|trim] -o outdir -pw password -kf keyfile -msg message")
+		fmt.Println("-algo [pbk1|arg1] -img [webp|png|bin]")
 		fmt.Println("import: target -> outdir +(pw, kf, msg)")
 		fmt.Println("export: target -> outdir +(pw, kf)")
 		fmt.Println("view: list all files +(pw, kf)")

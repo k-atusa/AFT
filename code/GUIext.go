@@ -1,12 +1,14 @@
-// test800 : project USAG GUI extension
+// test800 : project USAG GUI extension R2
 package main
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"image/color"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -16,6 +18,7 @@ import (
 	"fyne.io/fyne/v2/widget"
 	"github.com/k-atusa/USAG-Lib/Bencode"
 	"github.com/k-atusa/USAG-Lib/Opsec"
+	"github.com/ncruces/zenity"
 )
 
 // ===== theme =====
@@ -33,28 +36,90 @@ func (m U1Theme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) colo
 	return theme.DefaultTheme().Color(name, variant)
 }
 
-func (m U1Theme) Font(s fyne.TextStyle) fyne.Resource     { return theme.DefaultTheme().Font(s) }
+func (m U1Theme) Font(s fyne.TextStyle) fyne.Resource     { return theme.DefaultTheme().Font(s) } // Fyne 2.7 has bug that can't render korean. Use v2.6.3 on Windows. See github.com/fyne-io/fyne/issues/6146
 func (m U1Theme) Icon(n fyne.ThemeIconName) fyne.Resource { return theme.DefaultTheme().Icon(n) }
 func (m U1Theme) Size(n fyne.ThemeSizeName) float32       { return theme.DefaultTheme().Size(n) * FyneSize }
 
-// ===== keyfile, keypair =====
-func SelectKF(w fyne.Window, lbl *widget.Label, keyPtr *[]byte) {
-	dialog.ShowFileOpen(func(r fyne.URIReadCloser, err error) {
-		if err == nil && r != nil {
-			// 1. Read file (max 1024 bytes)
-			defer r.Close()
-			buf := make([]byte, 1024)
-			n, _ := io.ReadFull(r, buf)
-			data := buf[:n]
+// ===== zenity selection =====
+var ZenNames []string = []string{"All", "Document", "Image", "Video", "Audio", "Archive"}
+var ZenTypes [][]string = [][]string{
+	[]string{"*"},
+	[]string{"*.txt", "*.md", "*.pdf", "*.csv"},
+	[]string{"*.jpg", "*.png", "*.jpeg", "*.webp", "*.svg", "*.gif", "*.bmp"},
+	[]string{"*.mp4", "*.mkv", "*.mov", "*.webm", "*.avi"},
+	[]string{"*.mp3", "*.wav", "*.flac", "*.ogg", "*.m4a"},
+	[]string{"*.zip", "*.7z", "*.rar", "*.tar", "*.xz", "*.gz", "*.bz2"},
+}
 
-			// 2. Set Data & Update UI
-			*keyPtr = data
-			lbl.SetText(fmt.Sprintf("[%dB, %s] %s", n, Opsec.Crc32(data), r.URI().Name()))
-		} else {
-			*keyPtr = nil
-			lbl.SetText("[0B 00000000] keyfile not selected")
+func zenityFilters() []zenity.FileFilter {
+	var filters []zenity.FileFilter
+	for i, name := range ZenNames {
+		filters = append(filters, zenity.FileFilter{
+			Name:     name,
+			Patterns: ZenTypes[i],
+		})
+	}
+	return filters
+}
+
+func ZenityFile(title string) (res string, err error) {
+	if title == "" {
+		title = "Select File"
+	}
+	res, err = zenity.SelectFile(zenity.Title(title), zenity.FileFilters(zenityFilters()))
+	if res == "" {
+		err = errors.New("canceled")
+	}
+	return res, err
+}
+
+func ZenityMultiFiles(title string) (res []string, err error) {
+	if title == "" {
+		title = "Select Files"
+	}
+	res, err = zenity.SelectFileMultiple(zenity.Title(title), zenity.FileFilters(zenityFilters()))
+	if len(res) == 0 {
+		err = errors.New("canceled")
+	}
+	return res, err
+}
+
+func ZenityFolder(title string) (res string, err error) {
+	if title == "" {
+		title = "Select Folder"
+	}
+	res, err = zenity.SelectFile(zenity.Title(title), zenity.Directory())
+	if res == "" {
+		err = errors.New("canceled")
+	}
+	return res, err
+}
+
+// ===== keyfile, keypair =====
+func SelectKF(lbl *widget.Label, keyPtr *[]byte) {
+	var data []byte = nil
+	name := "keyfile not selected"
+
+	// 1. open file
+	path, err := ZenityFile("")
+	var f *os.File
+	if err == nil {
+		f, err = os.Open(path)
+		if err == nil {
+			defer f.Close()
 		}
-	}, w)
+	}
+
+	// 2. Read file (max 1024 bytes)
+	if err == nil {
+		buf := make([]byte, 1024)
+		n, _ := io.ReadFull(f, buf)
+		data, name = buf[:n], filepath.Base(path)
+	}
+
+	// 2. Set Data & Update UI
+	*keyPtr = data
+	lbl.SetText(fmt.Sprintf("[%dB, %s] %s", len(data), Opsec.Crc32(data), name))
 }
 
 func ReceiveKF(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *[]byte) {
@@ -118,28 +183,37 @@ func ChooseKF(lbl *widget.Label, keyPtr *[]byte, sel string, mp map[string][]byt
 	lbl.SetText(fmt.Sprintf("[%dB, %s] %s", len(data), Opsec.Crc32(data), sel))
 }
 
-func SelectPub(w fyne.Window, lbl *widget.Label, keyPtr *[]byte, basic []byte) {
-	dialog.ShowFileOpen(func(r fyne.URIReadCloser, err error) {
-		data := basic
-		name := "default"
-		if err == nil && r != nil {
-			defer r.Close()
-			data, err = io.ReadAll(r)
-			name = r.URI().Name()
-			if err != nil {
-				data = basic
-				name = fmt.Sprintf("default (%.20s)", err.Error())
-			} else {
-				data, err = Bencode.Decode(string(data))
-				if err != nil {
-					data = basic
-					name = fmt.Sprintf("default (%.20s)", err.Error())
-				}
+func SelectPub(lbl *widget.Label, keyPtr *[]byte, basic []byte) {
+	var data []byte = basic
+	name := "default"
+
+	// 1. open file
+	path, err := ZenityFile("")
+	var f *os.File
+	if err == nil {
+		f, err = os.Open(path)
+		if err == nil {
+			defer f.Close()
+		}
+	}
+
+	// 2. Read & Decode file
+	if err == nil {
+		data, err = io.ReadAll(f)
+		if err == nil {
+			data, err = Bencode.Decode(string(data))
+			if err == nil {
+				name = filepath.Base(path)
 			}
 		}
-		*keyPtr = data
-		lbl.SetText(fmt.Sprintf("[%dB, %s] %s", len(data), Opsec.Crc32(data), name))
-	}, w)
+	}
+	if err != nil {
+		name = fmt.Sprintf("default (%.20s)", err.Error())
+	}
+
+	// 2. Set Data & Update UI
+	*keyPtr = data
+	lbl.SetText(fmt.Sprintf("[%dB, %s] %s", len(data), Opsec.Crc32(data), name))
 }
 
 func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *[]byte) {
@@ -162,7 +236,7 @@ func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr 
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				os.WriteFile("panic-log.txt", []byte(fmt.Sprintf("panic while GUIext.ReceiveKF: %v", r)), 0644)
+				os.WriteFile("panic-log.txt", []byte(fmt.Sprintf("panic while GUIext.ReceivePub: %v", r)), 0644)
 			}
 		}()
 
@@ -202,30 +276,30 @@ func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr 
 }
 
 // ===== File List Manager =====
-func ListAddFile(w fyne.Window, l *widget.List, tgts *[]string) {
-	dialog.ShowFileOpen(func(r fyne.URIReadCloser, err error) {
-		defer l.Refresh()
-		if err == nil && r != nil {
-			path := r.URI().Path()
-			if slices.Contains(*tgts, path) {
-				return
-			}
-			*tgts = append(*tgts, path)
+func ListAddFile(l *widget.List, tgts *[]string) {
+	defer l.Refresh()
+	paths, err := ZenityMultiFiles("")
+	if err != nil {
+		return
+	}
+	for _, r := range paths {
+		if slices.Contains(*tgts, r) {
+			continue
 		}
-	}, w)
+		*tgts = append(*tgts, r)
+	}
 }
 
-func ListAddFolder(w fyne.Window, l *widget.List, tgts *[]string) {
-	dialog.ShowFolderOpen(func(lu fyne.ListableURI, err error) {
-		defer l.Refresh()
-		if err == nil && lu != nil {
-			path := lu.Path()
-			if slices.Contains(*tgts, path) {
-				return
-			}
-			*tgts = append(*tgts, path)
-		}
-	}, w)
+func ListAddFolder(l *widget.List, tgts *[]string) {
+	defer l.Refresh()
+	path, err := ZenityFolder("")
+	if err != nil {
+		return
+	}
+	if slices.Contains(*tgts, path) {
+		return
+	}
+	*tgts = append(*tgts, path)
 }
 
 func ListDelTgt(l *widget.List, tgts *[]string, idx int) {

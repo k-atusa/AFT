@@ -16,7 +16,7 @@ import (
 	"github.com/k-atusa/USAG-Lib/Opsec"
 )
 
-var AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.0.0"
+var AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.1.0"
 
 // AFT Vault
 type AVault struct {

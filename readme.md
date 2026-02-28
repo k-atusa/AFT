@@ -1,4 +1,4 @@
-# AFT-desktop v1.0.0
+# AFT-desktop v1.1.0
 
 project USAG: Advanced File Transfer desktop version
 
@@ -80,8 +80,9 @@ go mod tidy
 go build -ldflags="-s -w" -trimpath -o aft TP1.go GUIext.go AFTcore.go main.go
 ```
 
-fyne2 GUI requires C compiler and X11 environment. check and install following packages before build.
+fyne2 GUI requires C compiler and X11 environment. Selection dialog requires Zenity. check and install following packages before build.
 ```bash
 gcc --version
+sudo apt install zenity
 sudo apt-get install pkg-config libgl1-mesa-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev
 ```

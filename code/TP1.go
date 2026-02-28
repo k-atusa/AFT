@@ -1,4 +1,4 @@
-// test799 : project USAG TP1 protocol
+// test799 : project USAG TP1 protocol R2
 package main
 
 import (

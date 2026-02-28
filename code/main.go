@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -107,20 +106,19 @@ func (l *LoginPage) Fill() {
 	})
 	sel0.PlaceHolder = "Select Shortcut"
 	btn0 := widget.NewButtonWithIcon("Select Manually", theme.FolderOpenIcon(), func() {
-		dialog.ShowFolderOpen(func(list fyne.ListableURI, err error) {
-			if err == nil && list != nil {
-				l.VaultPath = list.Path()
-				l.Vault.Path = list.Path()
-				lbl0a.SetText(list.Path())
-				msg, _ := l.Vault.Load("", nil)
-				lbl0b.SetText("Msg: " + msg)
-			}
-		}, l.Window)
+		path, err := ZenityFolder("")
+		if err != nil {
+			return
+		}
+		l.VaultPath, l.Vault.Path = path, path
+		lbl0a.SetText(path)
+		msg, _ := l.Vault.Load("", nil)
+		lbl0b.SetText("Msg: " + msg)
 	})
 
 	// group1: keyfile selection
 	lbl1 := widget.NewLabel("[0B 00000000] keyfile not selected")
-	btn1a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(l.Window, lbl1, &l.KeyFile) })
+	btn1a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(lbl1, &l.KeyFile) })
 	ent1 := widget.NewEntry()
 	ent1.SetPlaceHolder("port: 8001")
 	btn1b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { ReceiveKF(l.Window, lbl1, ent1, &l.KeyFile) })
@@ -159,12 +157,12 @@ func (l *LoginPage) Fill() {
 	// group4: new vault path selection
 	lbl4 := widget.NewLabelWithStyle("Path not selected", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	btn4 := widget.NewButtonWithIcon("Select", theme.FolderOpenIcon(), func() {
-		dialog.ShowFolderOpen(func(list fyne.ListableURI, err error) {
-			if err == nil && list != nil {
-				l.NewPath = list.Path()
-				lbl4.SetText(list.Path())
-			}
-		}, l.Window)
+		path, err := ZenityFolder("")
+		if err != nil {
+			return
+		}
+		l.NewPath = path
+		lbl4.SetText(path)
 	})
 
 	// group5: vault config
@@ -527,47 +525,46 @@ func (v *ViewPage) transfer(cut bool) {
 
 // Worker Functions
 func (v *ViewPage) ImportFile() {
-	dialog.ShowFileOpen(func(reader fyne.URIReadCloser, err error) {
-		if err == nil && reader != nil {
-			data, err := io.ReadAll(reader)
-			if err != nil {
-				dialog.ShowError(err, v.Window)
-				return
-			}
-			defer reader.Close()
+	// Select files
+	defer v.TreeView.Refresh()
+	paths, err := ZenityMultiFiles("")
+	if err != nil {
+		dialog.ShowError(err, v.Window)
+		return
+	}
 
-			// Determine target directory
-			targetDir := ""
-			if v.CurPath != "" {
-				if _, isDir := v.Vault.TreeView[v.CurPath]; isDir {
-					targetDir = v.CurPath
-				} else {
-					if idx := strings.LastIndex(strings.TrimSuffix(v.CurPath, "/"), "/"); idx != -1 {
-						targetDir = v.CurPath[:idx+1]
-					}
-				}
+	// Determine target directory
+	targetDir := ""
+	if v.CurPath != "" {
+		if _, isDir := v.Vault.TreeView[v.CurPath]; isDir {
+			targetDir = v.CurPath
+		} else {
+			if idx := strings.LastIndex(strings.TrimSuffix(v.CurPath, "/"), "/"); idx != -1 {
+				targetDir = v.CurPath[:idx+1]
 			}
-
-			fname := reader.URI().Name()
-			if err := v.Vault.Write(targetDir+fname, data); err != nil {
-				dialog.ShowError(err, v.Window)
-				return
-			}
-			v.TreeView.Refresh()
 		}
-	}, v.Window)
+	}
+
+	// Add files
+	for _, path := range paths {
+		if err := v.Vault.Add(path, targetDir); err != nil {
+			dialog.ShowError(err, v.Window)
+			return
+		}
+	}
 }
 
 func (v *ViewPage) ImportFolder() {
-	dialog.ShowFolderOpen(func(list fyne.ListableURI, err error) {
-		if err == nil && list != nil {
-			if err := v.Vault.Add(list.Path(), ""); err != nil { // save to global space
-				dialog.ShowError(err, v.Window)
-				return
-			}
-			v.TreeView.Refresh()
-		}
-	}, v.Window)
+	defer v.TreeView.Refresh()
+	path, err := ZenityFolder("")
+	if err != nil {
+		dialog.ShowError(err, v.Window)
+		return
+	}
+	if err := v.Vault.Add(path, ""); err != nil { // save to global space
+		dialog.ShowError(err, v.Window)
+		return
+	}
 }
 
 func (v *ViewPage) Export() {
@@ -576,11 +573,14 @@ func (v *ViewPage) Export() {
 		targetName = "Entire Vault"
 	}
 
-	dialog.ShowConfirm("Export", "Export "+targetName+" to current directory?", func(b bool) {
+	dialog.ShowConfirm("Export", "Export "+targetName+" to selected directory?", func(b bool) {
 		if !b {
 			return
 		}
-		destRootDir, _ := os.Getwd() // Use current working directory
+		destRootDir, err := ZenityFolder("")
+		if err != nil {
+			return
+		}
 		count := 0
 
 		if v.CurPath != "" && !strings.HasSuffix(v.CurPath, "/") { // CASE 1: Single File
@@ -701,7 +701,7 @@ func (v *ViewPage) ResetPW() {
 	// group0: keyfile selection
 	var keyFile []byte
 	lbl0 := widget.NewLabel("[0B 00000000] keyfile not selected")
-	btn0a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(w, lbl0, &keyFile) })
+	btn0a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(lbl0, &keyFile) })
 
 	ent0 := widget.NewEntry()
 	ent0.SetPlaceHolder("port: 8001")

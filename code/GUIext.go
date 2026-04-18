@@ -1,4 +1,4 @@
-// test800 : project USAG GUI extension R4
+// test800 : project USAG GUI extension R5
 // Fyne 2.7 has bug that can't render korean. Use v2.6.3 on Windows. See github.com/fyne-io/fyne/issues/6146
 package main
 
@@ -134,7 +134,9 @@ func ReceiveKF(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *
 	secret := ""
 	if portEnt.Text != "" {
 		parts := strings.Split(portEnt.Text, "/")
-		port = parts[0]
+		if parts[0] != "" {
+			port = parts[0]
+		}
 		if len(parts) > 1 {
 			secret = parts[1]
 		}
@@ -237,7 +239,9 @@ func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr 
 	secret := ""
 	if portEnt.Text != "" {
 		parts := strings.Split(portEnt.Text, "/")
-		port = parts[0]
+		if parts[0] != "" {
+			port = parts[0]
+		}
 		if len(parts) > 1 {
 			secret = parts[1]
 		}

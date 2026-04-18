@@ -16,14 +16,14 @@ import (
 	"github.com/k-atusa/USAG-Lib/Opsec"
 )
 
-var AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.1.0"
+var AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.2.0"
 
 // AFT Vault
 type AVault struct {
 	Path  string
 	limit int64
 
-	AlgoType string // pbk1, arg1
+	AlgoType string // pbk2, arg2
 	Ext      string // webp, png, bin
 	VaultKey string
 
@@ -68,7 +68,7 @@ func (a *AVault) qread(path string, pw string, kf []byte) (data []byte, msg stri
 	if err != nil {
 		return data, msg, smsg, err
 	}
-	if ops.Size <= 0 { // only header, no body
+	if ops.BodySize <= 0 { // only header, no body
 		return data, msg, smsg, nil
 	}
 
@@ -78,7 +78,7 @@ func (a *AVault) qread(path string, pw string, kf []byte) (data []byte, msg stri
 		return data, msg, smsg, err
 	}
 	buf := new(bytes.Buffer)
-	if err := sm.DeFile(f, ops.Size, buf); err != nil {
+	if err := sm.DeFile(f, ops.BodySize, buf); err != nil {
 		return data, msg, smsg, err
 	}
 	data = buf.Bytes()
@@ -116,9 +116,9 @@ func (a *AVault) qwrite(data []byte, path string, pw string) error {
 	// encrypt header
 	ops := new(Opsec.Opsec)
 	ops.Reset()
-	ops.Size = sm.AfterSize(int64(len(data)))
+	ops.BodySize = sm.AfterSize(int64(len(data)))
 	ops.BodyAlgo = "gcm1"
-	header, err := ops.Encpw(a.AlgoType, []byte(pw), nil)
+	header, err := ops.Encpw("sha3", []byte(pw), nil) // inner subsystem always use sha3
 	if err == nil {
 		err = sm.Init(sm.Algo, ops.BodyKey)
 	}

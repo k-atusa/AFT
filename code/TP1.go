@@ -1,4 +1,4 @@
-// test799 : project USAG TP1 protocol R2
+// test799 : project USAG TP1 protocol R4
 package main
 
 import (
@@ -17,18 +17,26 @@ import (
 	"github.com/k-atusa/USAG-Lib/Opsec"
 )
 
-// Mode Flags
 const (
+	// Operation Mode
 	MODE_MSGONLY uint16 = 0x1
 
-	MODE_GCM1  uint16 = 0x10
-	MODE_GCMX1 uint16 = 0x20
+	// Hash Function Mode
+	HASH_SHA3 uint16 = 0x10
+	HASH_PBK2 uint16 = 0x20
+	HASH_ARG2 uint16 = 0x30
 
-	MODE_RSA1_2K uint16 = 0x100
-	MODE_RSA1_3K uint16 = 0x200
-	MODE_RSA1_4K uint16 = 0x400
-	MODE_ECC1    uint16 = 0x800
+	// Symmetric Encryption Mode
+	SYM_GCM1  uint16 = 0x100
+	SYM_GCMX1 uint16 = 0x200
 
+	// Asymmetric Encryption Mode
+	ASYM_RSA1 uint16 = 0x1000
+	ASYM_RSA2 uint16 = 0x2000
+	ASYM_ECC1 uint16 = 0x3000
+	ASYM_PQC1 uint16 = 0x4000
+
+	// Status
 	STAGE_IDLE         int = 0
 	STAGE_HANDSHAKE    int = 1
 	STAGE_ENCRYPTING   int = 2
@@ -87,10 +95,24 @@ func TempPath() string {
 	return path
 }
 
+func DelPath(path string) error {
+	err := os.RemoveAll(path) // first try
+	if err != nil {
+		time.Sleep(1 * time.Second)
+		err = os.RemoveAll(path) // second try
+	}
+	if err != nil {
+		time.Sleep(3 * time.Second)
+		err = os.RemoveAll(path) // third try
+	}
+	return err
+}
+
 // ========== TP1 Class ==========
 type TP1 struct {
-	Mode  uint16
-	InMem bool
+	Mode    uint16
+	InMem   bool
+	SharedS string
 
 	stage int
 	sent  uint64
@@ -102,9 +124,10 @@ type TP1 struct {
 	max8  [8]byte
 }
 
-func (p *TP1) Init(mode uint16, InMem bool, conn net.Conn) {
+func (p *TP1) Init(mode uint16, InMem bool, shs string, conn net.Conn) {
 	p.Mode = mode
 	p.InMem = InMem
+	p.SharedS = shs
 	p.stage = 0
 	p.sent = 0
 	p.total = 0
@@ -160,19 +183,19 @@ func (p *TP1) syncStatus(stop chan bool) {
 
 // handshake with receiver, returns (peer public key, my public key, my private key)
 func (p *TP1) handshakeSend() ([]byte, []byte, []byte, error) {
-	// 1. Make key pair
+	// 1. Generate key pair
 	var myPub, myPriv []byte
 	var err error
 	am := new(Bencrypt.AsymMaster)
-	switch {
-	case p.Mode&MODE_RSA1_2K != 0:
-		err = am.Init("rsa1-2k")
-	case p.Mode&MODE_RSA1_3K != 0:
-		err = am.Init("rsa1-3k")
-	case p.Mode&MODE_RSA1_4K != 0:
-		err = am.Init("rsa1-4k")
-	case p.Mode&MODE_ECC1 != 0:
+	switch p.Mode & 0xF000 {
+	case ASYM_RSA1:
+		err = am.Init("rsa1")
+	case ASYM_RSA2:
+		err = am.Init("rsa2")
+	case ASYM_ECC1:
 		err = am.Init("ecc1")
+	case ASYM_PQC1:
+		err = am.Init("pqc1")
 	default:
 		err = errors.New("invalid mode: no valid algorithm flag set")
 	}
@@ -180,27 +203,70 @@ func (p *TP1) handshakeSend() ([]byte, []byte, []byte, error) {
 		myPub, myPriv, err = am.Genkey()
 	}
 	if err != nil {
-		p.setStage(STAGE_ERROR)
 		return nil, nil, nil, err
 	}
 
-	// 2. Prepare Packet: Magic(4) + Mode(2) + PubSize(2) + PubKey(N)
-	buf := make([]byte, 8+len(myPub))
-	copy(buf[0:4], p.magic[:])
+	// 2. Send init packet: Magic(4B) + Mode(2B)
+	initPkt := make([]byte, 6)
+	copy(initPkt[0:4], p.magic[:])
+	copy(initPkt[4:6], Opsec.EncodeInt(uint64(p.Mode), 2))
+	if _, err := p.conn.Write(initPkt); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// 3. Send Sender Auth: Nonce(8B) + Hash(32B)
+	nonce := Bencrypt.Random(8)
+	hm := new(Bencrypt.HashMaster)
+	switch p.Mode & 0xF0 {
+	case HASH_SHA3:
+		err = hm.Init("sha3", 32, 44)
+	case HASH_PBK2:
+		err = hm.Init("pbk2", 32, 44)
+	case HASH_ARG2:
+		err = hm.Init("arg2", 32, 44)
+	default:
+		err = errors.New("invalid mode: no valid algorithm flag set")
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	hashSrc := make([]byte, 0, len(myPub)+len(p.SharedS)) // myPub + SharedS
+	hashSrc = append(hashSrc, myPub...)
+	hashSrc = append(hashSrc, []byte(p.SharedS)...)
+	hash, _, err := hm.KDF(hashSrc, nonce)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	authPkt := make([]byte, 40) // 8 + 32
+	copy(authPkt[0:8], nonce)
+	copy(authPkt[8:40], hash)
+	if _, err := p.conn.Write(authPkt); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// 4. Receive Receiver Auth: Nonce(8B) + Hash(32B)
+	peerAuth := make([]byte, 40)
+	if _, err := io.ReadFull(p.conn, peerAuth); err != nil {
+		return nil, nil, nil, err
+	}
+	peerNonce := peerAuth[0:8]
+	peerHash := peerAuth[8:40]
+
+	// 5. Send Sender PubKey: Length(2B) + PubKey
 	pubLen := len(myPub)
 	if pubLen > 65535 {
 		return nil, nil, nil, errors.New("public key is too long")
 	}
-	copy(buf[4:6], Opsec.EncodeInt(uint64(p.Mode), 2))
-	copy(buf[6:8], Opsec.EncodeInt(uint64(pubLen), 2))
-	copy(buf[8:], myPub)
-
-	// 3. Send Packet
-	if _, err := p.conn.Write(buf); err != nil {
+	pubPkt := make([]byte, 2+pubLen)
+	copy(pubPkt[0:2], Opsec.EncodeInt(uint64(pubLen), 2))
+	copy(pubPkt[2:], myPub)
+	if _, err := p.conn.Write(pubPkt); err != nil {
 		return nil, nil, nil, err
 	}
 
-	// 4. Receive Response: PubSize(2) + PubKey(M)
+	// 6. Receive Receiver PubKey: Length(2B) + PubKey
 	head := make([]byte, 2)
 	if _, err := io.ReadFull(p.conn, head); err != nil {
 		return nil, nil, nil, err
@@ -210,57 +276,110 @@ func (p *TP1) handshakeSend() ([]byte, []byte, []byte, error) {
 	if _, err := io.ReadFull(p.conn, peerPub); err != nil {
 		return nil, nil, nil, err
 	}
+
+	// 7. Verify Receiver Auth
+	verifySrc := make([]byte, 0, len(peerPub)+len(p.SharedS)) // peerPub + SharedS
+	verifySrc = append(verifySrc, peerPub...)
+	verifySrc = append(verifySrc, []byte(p.SharedS)...)
+	verifyHash, _, err := hm.KDF(verifySrc, peerNonce)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if !bytes.Equal(peerHash, verifyHash) {
+		return nil, nil, nil, errors.New("receiver authentication failed")
+	}
 	return peerPub, myPub, myPriv, nil
 }
 
 // handshake with sender, returns (peer public key, my public key, my private key)
 func (p *TP1) handshakeReceive() ([]byte, []byte, []byte, error) {
-	// 1. Receive Packet: Magic(4) + Mode(2) + PubSize(2)
-	header := make([]byte, 8)
+	// 1. Receive init packet: Magic(4B) + Mode(2B)
+	header := make([]byte, 6)
 	if _, err := io.ReadFull(p.conn, header); err != nil {
 		return nil, nil, nil, err
 	}
-
-	// 2. Validate Magic
-	if string(header[:4]) != string(p.magic[:]) {
+	if string(header[:4]) != string(p.magic[:]) { // Validate Magic
 		return nil, nil, nil, errors.New("invalid magic number")
 	}
+	p.Mode = uint16(Opsec.DecodeInt(header[4:6])) // Parse Mode
 
-	// 3. Parse Mode & Peer PubKey Length
-	p.Mode = uint16(Opsec.DecodeInt(header[4:6])) // Mode (2B)
-	peerPubLen := Opsec.DecodeInt(header[6:8])    // PubSize (2B)
+	// 2. Generate key pair based on Mode
+	var myPub, myPriv []byte
+	var err error
+	am := new(Bencrypt.AsymMaster)
+	switch p.Mode & 0xF000 {
+	case ASYM_RSA1:
+		err = am.Init("rsa1")
+	case ASYM_RSA2:
+		err = am.Init("rsa2")
+	case ASYM_ECC1:
+		err = am.Init("ecc1")
+	case ASYM_PQC1:
+		err = am.Init("pqc1")
+	default:
+		return nil, nil, nil, errors.New("invalid mode: no valid algorithm flag set")
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	myPub, myPriv, err = am.Genkey()
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
-	// 4. Receive Peer Public Key
-	peerPub := make([]byte, peerPubLen)
+	// 3. Receive Sender Auth: Nonce(8B) + Hash(32B)
+	peerAuth := make([]byte, 40)
+	if _, err := io.ReadFull(p.conn, peerAuth); err != nil {
+		return nil, nil, nil, err
+	}
+	peerNonce := peerAuth[0:8]
+	peerHash := peerAuth[8:40]
+
+	// 4. Initialize HashMaster based on received Mode
+	hm := new(Bencrypt.HashMaster)
+	switch p.Mode & 0xF0 {
+	case HASH_SHA3:
+		err = hm.Init("sha3", 32, 44)
+	case HASH_PBK2:
+		err = hm.Init("pbk2", 32, 44)
+	case HASH_ARG2:
+		err = hm.Init("arg2", 32, 44)
+	default:
+		return nil, nil, nil, errors.New("invalid mode: no valid hash algorithm flag set")
+	}
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	// 5. Send Receiver Auth: Nonce(8B) + Hash(32B)
+	myNonce := Bencrypt.Random(8)
+	hashSrc := make([]byte, 0, len(myPub)+len(p.SharedS)) // myPub + SharedS
+	hashSrc = append(hashSrc, myPub...)
+	hashSrc = append(hashSrc, []byte(p.SharedS)...)
+	myHash, _, err := hm.KDF(hashSrc, myNonce)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+
+	authPkt := make([]byte, 40) // 8 + 32
+	copy(authPkt[0:8], myNonce)
+	copy(authPkt[8:40], myHash)
+	if _, err := p.conn.Write(authPkt); err != nil {
+		return nil, nil, nil, err
+	}
+
+	// 6. Receive Sender PubKey: Length(2B) + PubKey
+	head := make([]byte, 2)
+	if _, err := io.ReadFull(p.conn, head); err != nil {
+		return nil, nil, nil, err
+	}
+	peerPubLen := Opsec.DecodeInt(head)
+	peerPub := make([]byte, int(peerPubLen))
 	if _, err := io.ReadFull(p.conn, peerPub); err != nil {
 		return nil, nil, nil, err
 	}
 
-	// 5. Generate My Key Pair based on Mode
-	var myPub, myPriv []byte
-	var err error
-	am := new(Bencrypt.AsymMaster)
-	switch {
-	case p.Mode&MODE_RSA1_2K != 0:
-		err = am.Init("rsa1-2k")
-	case p.Mode&MODE_RSA1_3K != 0:
-		err = am.Init("rsa1-3k")
-	case p.Mode&MODE_RSA1_4K != 0:
-		err = am.Init("rsa1-4k")
-	case p.Mode&MODE_ECC1 != 0:
-		err = am.Init("ecc1")
-	default:
-		err = errors.New("invalid mode: no valid algorithm flag set")
-	}
-	if err == nil {
-		myPub, myPriv, err = am.Genkey()
-	}
-	if err != nil {
-		p.setStage(STAGE_ERROR)
-		return nil, nil, nil, err
-	}
-
-	// 6. Send Response: PubSize(2) + PubKey(M)
+	// 7. Send Receiver PubKey: Length(2B) + PubKey
 	myPubLen := len(myPub)
 	if myPubLen > 65535 {
 		return nil, nil, nil, errors.New("generated public key is too long")
@@ -271,6 +390,18 @@ func (p *TP1) handshakeReceive() ([]byte, []byte, []byte, error) {
 	if _, err := p.conn.Write(resp); err != nil {
 		return nil, nil, nil, err
 	}
+
+	// 8. Verify Sender Auth
+	verifySrc := make([]byte, 0, len(peerPub)+len(p.SharedS)) // peerPub + SharedS
+	verifySrc = append(verifySrc, peerPub...)
+	verifySrc = append(verifySrc, []byte(p.SharedS)...)
+	verifyHash, _, err := hm.KDF(verifySrc, peerNonce)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if !bytes.Equal(peerHash, verifyHash) {
+		return nil, nil, nil, errors.New("sender authentication failed")
+	}
 	return peerPub, myPub, myPriv, nil
 }
 
@@ -278,8 +409,11 @@ func (p *TP1) handshakeReceive() ([]byte, []byte, []byte, error) {
 func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, error) {
 	// 1. Handshake
 	p.setStage(STAGE_HANDSHAKE)
+	p.conn.SetDeadline(time.Now().Add(30 * time.Second)) // set deadline for handshake
 	peerPub, myPub, myPriv, err := p.handshakeSend()
+	p.conn.SetDeadline(time.Time{}) // clear deadline
 	if err != nil {
+		p.setStage(STAGE_ERROR)
 		return myPub, peerPub, err
 	}
 	stop := make(chan bool)
@@ -288,10 +422,10 @@ func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, erro
 
 	// 2. Prepare encryption worker
 	sm := new(Bencrypt.SymMaster)
-	switch {
-	case p.Mode&MODE_GCM1 != 0:
+	switch p.Mode & 0xF00 {
+	case SYM_GCM1:
 		err = sm.Init("gcm1", make([]byte, 44))
-	case p.Mode&MODE_GCMX1 != 0:
+	case SYM_GCMX1:
 		err = sm.Init("gcmx1", make([]byte, 44))
 	default:
 		err = errors.New("invalid mode: no valid algorithm flag set")
@@ -305,20 +439,25 @@ func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, erro
 	// 3. Prepare Opsec Header, set Body Key
 	ops := new(Opsec.Opsec)
 	ops.Reset()
-	ops.Size = sm.AfterSize(size)
-	ops.BodyAlgo = sm.Algo
 	ops.Smsg = smsg
+	ops.SmsgInfo = []byte(p.SharedS)
+	ops.BodyAlgo = sm.Algo
+	ops.BodySize = sm.AfterSize(size)
 	var opsHead []byte
-	switch {
-	case p.Mode&MODE_RSA1_2K != 0, p.Mode&MODE_RSA1_3K != 0, p.Mode&MODE_RSA1_4K != 0:
+	switch p.Mode & 0xF000 {
+	case ASYM_RSA1:
 		opsHead, err = ops.Encpub("rsa1", peerPub, myPriv)
-	case p.Mode&MODE_ECC1 != 0:
+	case ASYM_RSA2:
+		opsHead, err = ops.Encpub("rsa2", peerPub, myPriv)
+	case ASYM_ECC1:
 		opsHead, err = ops.Encpub("ecc1", peerPub, myPriv)
+	case ASYM_PQC1:
+		opsHead, err = ops.Encpub("pqc1", peerPub, myPriv)
 	default:
 		err = errors.New("invalid mode: no valid algorithm flag set")
 	}
 	if err == nil {
-		err = sm.Init(sm.Algo, ops.BodyKey)
+		err = sm.Init(sm.Algo, ops.BodyKey) // set body key
 	}
 	if err != nil {
 		p.setStage(STAGE_ERROR)
@@ -341,7 +480,7 @@ func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, erro
 			stop <- false
 			return myPub, peerPub, err
 		}
-		defer os.Remove(tempPath)
+		defer DelPath(tempPath)
 		defer f.Close()
 		tempFile = f
 		tempWriter = f
@@ -432,7 +571,9 @@ func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, erro
 func (p *TP1) Receive(dst io.Writer) ([]byte, []byte, string, error) {
 	// 1. Handshake
 	p.setStage(STAGE_HANDSHAKE)
+	p.conn.SetDeadline(time.Now().Add(30 * time.Second)) // set deadline for handshake
 	peerPub, myPub, myPriv, err := p.handshakeReceive()
+	p.conn.SetDeadline(time.Time{}) // clear deadline
 	if err != nil {
 		p.setStage(STAGE_ERROR)
 		return peerPub, myPub, "", err
@@ -473,7 +614,7 @@ func (p *TP1) Receive(dst io.Writer) ([]byte, []byte, string, error) {
 			p.setStage(STAGE_ERROR)
 			return peerPub, myPub, "", err
 		}
-		defer os.Remove(tempPath)
+		defer DelPath(tempPath)
 		defer f.Close()
 		tempFile = f
 		tempWriter = f
@@ -533,9 +674,13 @@ func (p *TP1) Receive(dst io.Writer) ([]byte, []byte, string, error) {
 		return peerPub, myPub, "", err
 	}
 	ops.View(headBytes)
-	if err := ops.Decpub(myPriv, peerPub); err != nil {
+	if err := ops.Decpub(myPriv, myPub, peerPub); err != nil {
 		p.setStage(STAGE_ERROR)
 		return peerPub, myPub, "", err
+	}
+	if !bytes.Equal(ops.SmsgInfo, []byte(p.SharedS)) {
+		p.setStage(STAGE_ERROR)
+		return peerPub, myPub, "", errors.New("invalid session shared secret")
 	}
 
 	// 6. Prepare decryption worker
@@ -547,7 +692,7 @@ func (p *TP1) Receive(dst io.Writer) ([]byte, []byte, string, error) {
 	}
 
 	// 7. Decrypt Body to Stream
-	if err := sm.DeFile(tempReader, ops.Size, dst); err != nil {
+	if err := sm.DeFile(tempReader, ops.BodySize, dst); err != nil {
 		p.setStage(STAGE_ERROR)
 		return peerPub, myPub, "", err
 	}

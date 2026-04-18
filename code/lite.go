@@ -30,7 +30,7 @@ func (cfg *Config) Init() {
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError) // empty string means auto
 	fs.StringVar(&cfg.Mode, "m", "help", "work mode: import, export, view, trim")
 	fs.StringVar(&cfg.Output, "o", "", "output folder")
-	fs.StringVar(&cfg.AlgoType, "algo", "arg1", "algorithm type: pbk1, arg1")
+	fs.StringVar(&cfg.AlgoType, "algo", "arg2", "algorithm type: pbk2, arg2")
 	fs.StringVar(&cfg.ImgType, "img", "webp", "image type: webp, png, bin")
 	fs.StringVar(&cfg.PW, "pw", "", "password")
 	fs.StringVar(&cfg.Msg, "msg", "", "message")

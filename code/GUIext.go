@@ -1,4 +1,5 @@
-// test800 : project USAG GUI extension R2
+// test800 : project USAG GUI extension R4
+// Fyne 2.7 has bug that can't render korean. Use v2.6.3 on Windows. See github.com/fyne-io/fyne/issues/6146
 package main
 
 import (
@@ -36,7 +37,7 @@ func (m U1Theme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) colo
 	return theme.DefaultTheme().Color(name, variant)
 }
 
-func (m U1Theme) Font(s fyne.TextStyle) fyne.Resource     { return theme.DefaultTheme().Font(s) } // Fyne 2.7 has bug that can't render korean. Use v2.6.3 on Windows. See github.com/fyne-io/fyne/issues/6146
+func (m U1Theme) Font(s fyne.TextStyle) fyne.Resource     { return theme.DefaultTheme().Font(s) }
 func (m U1Theme) Icon(n fyne.ThemeIconName) fyne.Resource { return theme.DefaultTheme().Icon(n) }
 func (m U1Theme) Size(n fyne.ThemeSizeName) float32       { return theme.DefaultTheme().Size(n) * FyneSize }
 
@@ -130,8 +131,13 @@ func ReceiveKF(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *
 		return
 	}
 	port := "8001"
+	secret := ""
 	if portEnt.Text != "" {
-		port = portEnt.Text
+		parts := strings.Split(portEnt.Text, "/")
+		port = parts[0]
+		if len(parts) > 1 {
+			secret = parts[1]
+		}
 	}
 	for i, r := range ips {
 		ips[i] = r + ":" + port
@@ -157,7 +163,7 @@ func ReceiveKF(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *
 
 		// 2-2. Accept Connection
 		tp := new(TP1)
-		tp.Init(0, true, sock.Conn) // receiver does not need to set mode
+		tp.Init(0, true, secret, sock.Conn) // receiver does not need to set mode
 		buf := new(bytes.Buffer)
 		fromPub, toPub, _, err := tp.Receive(buf)
 		data := buf.Bytes()
@@ -201,7 +207,11 @@ func SelectPub(lbl *widget.Label, keyPtr *[]byte, basic []byte) {
 	if err == nil {
 		data, err = io.ReadAll(f)
 		if err == nil {
-			data, err = Bencode.Decode(string(data))
+			if strings.Contains(string(data), "#") {
+				data, err = Bencode.Decode64(string(data), "#") // "#" splitter
+			} else {
+				data, err = Bencode.Decode64(string(data), "") // no splitter
+			}
 			if err == nil {
 				name = filepath.Base(path)
 			}
@@ -224,8 +234,13 @@ func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr 
 		return
 	}
 	port := "8001"
+	secret := ""
 	if portEnt.Text != "" {
-		port = portEnt.Text
+		parts := strings.Split(portEnt.Text, "/")
+		port = parts[0]
+		if len(parts) > 1 {
+			secret = parts[1]
+		}
 	}
 	for i, r := range ips {
 		ips[i] = r + ":" + port
@@ -251,7 +266,7 @@ func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr 
 
 		// 2-2. Accept Connection
 		tp := new(TP1)
-		tp.Init(0, true, sock.Conn) // receiver does not need to set mode
+		tp.Init(0, true, secret, sock.Conn) // receiver does not need to set mode
 		buf := new(bytes.Buffer)
 		fromPub, toPub, _, err := tp.Receive(buf)
 		data := buf.Bytes()
@@ -261,7 +276,11 @@ func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr 
 		}
 
 		// 3. Decode key
-		data, err = Bencode.Decode(string(data))
+		if strings.Contains(string(data), "#") {
+			data, err = Bencode.Decode64(string(data), "#") // "#" splitter
+		} else {
+			data, err = Bencode.Decode64(string(data), "") // no splitter
+		}
 		if err != nil {
 			fyne.Do(func() { dialog.ShowError(err, w) })
 			return
@@ -312,19 +331,4 @@ func ListDelTgt(l *widget.List, tgts *[]string, idx int) {
 	} else {
 		*tgts = append((*tgts)[:idx], (*tgts)[idx+1:]...)
 	}
-}
-
-// ===== Others =====
-func TrimStr(s string, line int) string {
-	if line <= 0 {
-		return s
-	}
-	var b strings.Builder
-	for i, r := range []rune(s) {
-		if i > 0 && i%line == 0 {
-			b.WriteRune('\n')
-		}
-		b.WriteRune(r)
-	}
-	return b.String()
 }

@@ -120,7 +120,7 @@ func (l *LoginPage) Fill() {
 	lbl1 := widget.NewLabel("[0B 00000000] keyfile not selected")
 	btn1a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(lbl1, &l.KeyFile) })
 	ent1 := widget.NewEntry()
-	ent1.SetPlaceHolder("port: 8001")
+	ent1.SetPlaceHolder("port/secret: 8001/...")
 	btn1b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { ReceiveKF(l.Window, lbl1, ent1, &l.KeyFile) })
 	box1 := container.NewBorder(nil, nil, container.NewHBox(btn1a, btn1b), nil, ent1)
 
@@ -169,9 +169,9 @@ func (l *LoginPage) Fill() {
 	sel5a := widget.NewSelect([]string{"webp", "png", "bin"}, func(s string) { l.ImgType = s })
 	sel5a.SetSelected("webp")
 	l.ImgType = "webp"
-	sel5b := widget.NewSelect([]string{"arg1", "pbk1"}, func(s string) { l.KeyAlgo = s })
-	sel5b.SetSelected("arg1")
-	l.KeyAlgo = "arg1"
+	sel5b := widget.NewSelect([]string{"arg2", "pbk2"}, func(s string) { l.KeyAlgo = s })
+	sel5b.SetSelected("arg2")
+	l.KeyAlgo = "arg2"
 
 	// group6: generate new vault
 	ent6 := widget.NewEntry()
@@ -457,16 +457,18 @@ func (v *ViewPage) transfer(cut bool) {
 	if v.CurPath == "" || strings.HasSuffix(v.CurPath, "/") {
 		return
 	}
-	entry := widget.NewEntry()
-	entry.SetPlaceHolder("IP:port 127.0.0.1:8001")
-	dialog.ShowCustomConfirm("Transfer", "Send", "Cancel", entry, func(b bool) {
+	entryIP := widget.NewEntry()
+	entryIP.SetPlaceHolder("IP:port 127.0.0.1:8001") // entry to get IP
+	entrySecret := widget.NewPasswordEntry()
+	entrySecret.SetPlaceHolder("secret word") // entry to get shared secret
+	dialog.ShowCustomConfirm("Transfer", "Send", "Cancel", container.NewVBox(entryIP, entrySecret), func(b bool) {
 		// 1. Get IP Address
 		if !b {
 			return
 		}
 		addr := "127.0.0.1"
-		if entry.Text != "" {
-			addr = entry.Text
+		if entryIP.Text != "" {
+			addr = entryIP.Text
 		}
 		if !strings.Contains(addr, ":") {
 			addr += ":8001"
@@ -502,12 +504,12 @@ func (v *ViewPage) transfer(cut bool) {
 			// 3-2. Accept Connection
 			tp := new(TP1)
 			switch v.Vault.AlgoType {
-			case "arg1":
-				tp.Init(MODE_GCM1|MODE_ECC1, true, sock.Conn)
-			case "pbk1":
-				tp.Init(MODE_GCM1|MODE_RSA1_2K, true, sock.Conn)
+			case "arg2": // arg2 + gcm1 + pqc1
+				tp.Init(HASH_ARG2+SYM_GCM1+ASYM_PQC1, true, entrySecret.Text, sock.Conn)
+			case "pbk2": // pbk2 + gcm1 + ecc1
+				tp.Init(HASH_PBK2+SYM_GCM1+ASYM_ECC1, true, entrySecret.Text, sock.Conn)
 			default:
-				tp.Init(0, true, sock.Conn)
+				tp.Init(0, true, entrySecret.Text, sock.Conn)
 			}
 			fromPub, toPub, err := tp.Send(bytes.NewReader(data), int64(len(data)), "")
 			if err != nil {

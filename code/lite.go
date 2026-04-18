@@ -82,7 +82,7 @@ func f_import() error {
 		limit:    512 * 1048576,
 		AlgoType: Cfg.AlgoType,
 		Ext:      Cfg.ImgType,
-		VaultKey: hex.EncodeToString(Bencrypt.Random(32)),
+		VaultKey: hex.EncodeToString(Bencrypt.Random(48)),
 		TreeView: make(map[string][]string),
 		PtoCtbl:  make(map[string]string),
 		CtoPtbl:  make(map[string]string),
@@ -222,7 +222,7 @@ func f_trim() error {
 
 	// make new key
 	oldKey := v.VaultKey
-	newKey := hex.EncodeToString(Bencrypt.Random(32))
+	newKey := hex.EncodeToString(Bencrypt.Random(48))
 	fmt.Println("New vault key created...")
 
 	// re-encrypt all files

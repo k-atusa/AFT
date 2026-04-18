@@ -192,7 +192,7 @@ func (l *LoginPage) Fill() {
 			limit:    512 * 1048576,
 			AlgoType: l.KeyAlgo,
 			Ext:      l.ImgType,
-			VaultKey: hex.EncodeToString(Bencrypt.Random(32)),
+			VaultKey: hex.EncodeToString(Bencrypt.Random(48)),
 			TreeView: make(map[string][]string),
 			PtoCtbl:  make(map[string]string),
 			CtoPtbl:  make(map[string]string),

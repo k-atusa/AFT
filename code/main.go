@@ -460,7 +460,7 @@ func (v *ViewPage) transfer(cut bool) {
 	entryIP := widget.NewEntry()
 	entryIP.SetPlaceHolder("IP:port 127.0.0.1:8001") // entry to get IP
 	entrySecret := widget.NewPasswordEntry()
-	entrySecret.SetPlaceHolder("secret word") // entry to get shared secret
+	entrySecret.SetPlaceHolder("shared secret") // entry to get shared secret
 	dialog.ShowCustomConfirm("Transfer", "Send", "Cancel", container.NewVBox(entryIP, entrySecret), func(b bool) {
 		// 1. Get IP Address
 		if !b {

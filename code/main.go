@@ -34,6 +34,7 @@ import (
 type U1Config struct {
 	AutoExpire int      `json:"expire"`
 	Size       float32  `json:"size"`
+	DoPad      bool     `json:"dopad"`
 	Shortcuts  []string `json:"shortcuts"`
 }
 
@@ -43,6 +44,7 @@ func (c *U1Config) Load() error {
 		if errors.Is(err, os.ErrNotExist) {
 			c.AutoExpire = 20
 			c.Size = 1.0
+			c.DoPad = true
 			c.Shortcuts = []string{}
 			return c.Store()
 		}
@@ -130,6 +132,7 @@ func (l *LoginPage) Fill() {
 	btn2 := widget.NewButtonWithIcon("Login", theme.LoginIcon(), func() {
 		l.Password = ent2.Text
 		l.Vault.Path = l.VaultPath
+		l.Vault.DoPad = l.Config.DoPad
 		if l.VaultPath == "" {
 			dialog.ShowError(fmt.Errorf("Vault path not selected"), l.Window)
 			return
@@ -189,6 +192,7 @@ func (l *LoginPage) Fill() {
 		// 2. set config
 		v := &AVault{
 			Path:     l.NewPath,
+			DoPad:    l.Config.DoPad,
 			limit:    512 * 1048576,
 			AlgoType: l.KeyAlgo,
 			Ext:      l.ImgType,
@@ -207,6 +211,15 @@ func (l *LoginPage) Fill() {
 			dialog.ShowError(err, l.Window)
 			return
 		}
+
+		// 4. add to shortcuts
+		l.Config.Shortcuts = append(l.Config.Shortcuts, l.NewPath)
+		if err := l.Config.Store(); err != nil {
+			dialog.ShowError(err, l.Window)
+			return
+		}
+		sel0.Options = l.Config.Shortcuts
+		sel0.Refresh()
 		dialog.ShowInformation("Success", "Vault generated successfully", l.Window)
 	})
 	btn6.Importance = widget.HighImportance
@@ -505,11 +518,11 @@ func (v *ViewPage) transfer(cut bool) {
 			tp := new(TP1)
 			switch v.Vault.AlgoType {
 			case "arg2": // arg2 + gcm1 + pqc1
-				tp.Init(HASH_ARG2+SYM_GCM1+ASYM_PQC1, true, entrySecret.Text, sock.Conn)
+				tp.Init(HASH_ARG2+SYM_GCM1+ASYM_PQC1, true, v.Config.DoPad, entrySecret.Text, sock.Conn)
 			case "pbk2": // pbk2 + gcm1 + ecc1
-				tp.Init(HASH_PBK2+SYM_GCM1+ASYM_ECC1, true, entrySecret.Text, sock.Conn)
+				tp.Init(HASH_PBK2+SYM_GCM1+ASYM_ECC1, true, v.Config.DoPad, entrySecret.Text, sock.Conn)
 			default:
-				tp.Init(0, true, entrySecret.Text, sock.Conn)
+				tp.Init(0, true, v.Config.DoPad, entrySecret.Text, sock.Conn)
 			}
 			fromPub, toPub, err := tp.Send(bytes.NewReader(data), int64(len(data)), "")
 			if err != nil {

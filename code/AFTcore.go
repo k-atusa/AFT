@@ -16,11 +16,12 @@ import (
 	"github.com/k-atusa/USAG-Lib/Opsec"
 )
 
-var AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.2.0"
+var AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.3.0"
 
 // AFT Vault
 type AVault struct {
 	Path  string
+	DoPad bool
 	limit int64
 
 	AlgoType string // pbk2, arg2
@@ -102,8 +103,28 @@ func (a *AVault) hwrite(msg string, smsg string, path string, pw string, kf []by
 		return err
 	}
 	defer f.Close()
-	f.Write(a.prehead())
-	return ops.Write(f, header)
+	var writed int64 = 0
+	tb := a.prehead()
+	writed += int64(len(tb))
+	if _, err := f.Write(tb); err != nil {
+		return err
+	}
+	writed += int64(len(header)) + 6 // opsec magic
+	if len(header) >= 65535 {
+		writed += 2
+	}
+	if err := ops.Write(f, header); err != nil {
+		return err
+	}
+	if a.DoPad {
+		padLen := Opsec.PadLen(writed)
+		err = Opsec.PadFile(f, padLen)
+		if err != nil {
+			return err
+		}
+		writed += padLen
+	}
+	return nil
 }
 
 func (a *AVault) qwrite(data []byte, path string, pw string) error {
@@ -132,11 +153,33 @@ func (a *AVault) qwrite(data []byte, path string, pw string) error {
 		return err
 	}
 	defer f.Close()
-	f.Write(a.prehead())
+	var writed int64 = 0
+	tb := a.prehead()
+	writed += int64(len(tb))
+	if _, err := f.Write(tb); err != nil {
+		return err
+	}
+	writed += int64(len(header)) + 6 // opsec magic
+	if len(header) >= 65535 {
+		writed += 2
+	}
 	if err := ops.Write(f, header); err != nil {
 		return err
 	}
-	return sm.EnFile(bytes.NewBuffer(data), int64(len(data)), f)
+
+	writed += ops.BodySize
+	if err := sm.EnFile(bytes.NewBuffer(data), int64(len(data)), f); err != nil {
+		return err
+	}
+	if a.DoPad {
+		padLen := Opsec.PadLen(writed)
+		err = Opsec.PadFile(f, padLen)
+		if err != nil {
+			return err
+		}
+		writed += padLen
+	}
+	return nil
 }
 
 // load vault from disk

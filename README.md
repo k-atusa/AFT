@@ -1,4 +1,4 @@
-# AFT-desktop v1.2.0
+# AFT-desktop v1.3.0
 
 project USAG: Advanced File Transfer desktop version
 
@@ -15,6 +15,7 @@ project USAG: Advanced File Transfer desktop version
 | -pw | text | Sets the password. | 비밀번호를 설정합니다. |
 | -kf | filepath | Sets the key file path. | 키 파일 경로를 설정합니다. |
 | -msg | text | Sets public message of vault. | 저장소의 공개 메세지를 설정합니다. |
+| -nopad | | Disables opsec padding | 파일 패딩을 비활성화합니다. |
 | | | Argument following the options are interpreted as target path. | 옵션 이후 인자는 타겟 경로로 해석됩니다. |
 
 - import: 타겟 폴더를 암호화하여 새 저장소를 생성합니다. Make new vault by encrypting target folder.
@@ -47,6 +48,15 @@ CLI version does not support file transfer function. However, trim function is s
 **KeyFile is supposed to be smaller than 1024 bytes. Send function cuts the file if it is larger than 1024 bytes.**
 
 **Empty password and keyfile are allowed to maximize user control.**
+
+#### config
+
+| Option | Type | Info | 정보 |
+| :--- | :--- | :--- | :--- |
+| expire | int | Auto expire time in minutes. (Set 0 to disable auto expire) | 자동 세션 만료 시간. (0으로 설정 시 비활성화) |
+| size | float | Fyne UI Scaling factor. | Fyne UI 배율. |
+| dopad | bool | Enables Opsec padding. | Opsec 패딩 활성화 여부. |
+| shortcuts | string[] | List of favorite vault paths. | 즐겨찾기 볼트 경로 목록. |
 
 ## Build Executable
 

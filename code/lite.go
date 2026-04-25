@@ -21,9 +21,10 @@ type Config struct {
 	AlgoType string
 	ImgType  string
 
-	PW  string
-	KF  []byte
-	Msg string
+	PW    string
+	KF    []byte
+	Msg   string
+	DoPad bool
 }
 
 func (cfg *Config) Init() {
@@ -34,6 +35,7 @@ func (cfg *Config) Init() {
 	fs.StringVar(&cfg.ImgType, "img", "webp", "image type: webp, png, bin")
 	fs.StringVar(&cfg.PW, "pw", "", "password")
 	fs.StringVar(&cfg.Msg, "msg", "", "message")
+	fs.BoolVar(&cfg.DoPad, "nopad", false, "disable padding")
 
 	// get keyfile
 	kfpath := ""
@@ -57,6 +59,9 @@ func (cfg *Config) Init() {
 		fmt.Println("keyfile is truncated to 1024B")
 		cfg.KF = cfg.KF[:1024]
 	}
+
+	// flip flag
+	cfg.DoPad = !cfg.DoPad
 }
 
 // main functions
@@ -79,6 +84,7 @@ func f_import() error {
 	// make AVault
 	v := &AVault{
 		Path:     Cfg.Output,
+		DoPad:    Cfg.DoPad,
 		limit:    512 * 1048576,
 		AlgoType: Cfg.AlgoType,
 		Ext:      Cfg.ImgType,
@@ -206,7 +212,10 @@ func f_trim() error {
 	if Cfg.Target == "" {
 		return errors.New("target is required for trim")
 	}
-	v := &AVault{Path: Cfg.Target}
+	v := &AVault{
+		Path:  Cfg.Target,
+		DoPad: Cfg.DoPad,
+	}
 	msg, err := v.Load(Cfg.PW, Cfg.KF)
 	if err != nil {
 		return err
@@ -287,11 +296,11 @@ func main() {
 	default: // help
 		fmt.Print(AFT_VERSION + "\n\n")
 		fmt.Println("-m mode [import|export|view|trim] -o outdir -pw password -kf keyfile -msg message")
-		fmt.Println("-algo [pbk1|arg1] -img [webp|png|bin]")
-		fmt.Println("import: target -> outdir +(pw, kf, msg)")
+		fmt.Println("-algo [pbk2|arg2] -img [webp|png|bin]")
+		fmt.Println("import: target -> outdir +(pw, kf, msg, nopad)")
 		fmt.Println("export: target -> outdir +(pw, kf)")
 		fmt.Println("view: list all files +(pw, kf)")
-		fmt.Println("trim: trim and rebuild +(pw, kf)")
+		fmt.Println("trim: trim and rebuild +(pw, kf, nopad)")
 	}
 	if err != nil {
 		fmt.Printf("\n[ERROR] %v\n", err)

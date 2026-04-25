@@ -1,4 +1,4 @@
-// test800 : project USAG GUI extension R5
+// test800 : project USAG GUI extension R6
 // Fyne 2.7 has bug that can't render korean. Use v2.6.3 on Windows. See github.com/fyne-io/fyne/issues/6146
 package main
 
@@ -165,7 +165,7 @@ func ReceiveKF(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *
 
 		// 2-2. Accept Connection
 		tp := new(TP1)
-		tp.Init(0, true, secret, sock.Conn) // receiver does not need to set mode
+		tp.Init(0, true, true, secret, sock.Conn) // receiver does not need to set mode
 		buf := new(bytes.Buffer)
 		fromPub, toPub, _, err := tp.Receive(buf)
 		data := buf.Bytes()
@@ -270,7 +270,7 @@ func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr 
 
 		// 2-2. Accept Connection
 		tp := new(TP1)
-		tp.Init(0, true, secret, sock.Conn) // receiver does not need to set mode
+		tp.Init(0, true, true, secret, sock.Conn) // receiver does not need to set mode
 		buf := new(bytes.Buffer)
 		fromPub, toPub, _, err := tp.Receive(buf)
 		data := buf.Bytes()

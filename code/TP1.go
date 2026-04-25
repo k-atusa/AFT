@@ -1,4 +1,4 @@
-// test799 : project USAG TP1 protocol R4
+// test799 : project USAG TP1 protocol R5
 package main
 
 import (
@@ -112,6 +112,7 @@ func DelPath(path string) error {
 type TP1 struct {
 	Mode    uint16
 	InMem   bool
+	DoPad   bool
 	SharedS string
 
 	stage int
@@ -124,9 +125,10 @@ type TP1 struct {
 	max8  [8]byte
 }
 
-func (p *TP1) Init(mode uint16, InMem bool, shs string, conn net.Conn) {
+func (p *TP1) Init(mode uint16, inMem bool, doPad bool, shs string, conn net.Conn) {
 	p.Mode = mode
-	p.InMem = InMem
+	p.InMem = inMem
+	p.DoPad = doPad
 	p.SharedS = shs
 	p.stage = 0
 	p.sent = 0
@@ -486,16 +488,32 @@ func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, erro
 		tempWriter = f
 	}
 
-	// 5. Write Opsec Header, Body
+	// 5. Write Opsec Header, Body, Padding
+	var writed int64 = 0
+	writed += int64(len(opsHead)) + 6 // opsec magic
+	if len(opsHead) >= 65535 {
+		writed += 2
+	}
 	if err := ops.Write(tempWriter, opsHead); err != nil {
 		p.setStage(STAGE_ERROR)
 		stop <- false
 		return myPub, peerPub, err
 	}
+	writed += ops.BodySize
 	if err := sm.EnFile(src, size, tempWriter); err != nil {
 		p.setStage(STAGE_ERROR)
 		stop <- false
 		return myPub, peerPub, err
+	}
+	if p.DoPad {
+		padLen := Opsec.PadLen(writed)
+		err = Opsec.PadFile(tempWriter, padLen)
+		if err != nil {
+			p.setStage(STAGE_ERROR)
+			stop <- false
+			return myPub, peerPub, err
+		}
+		writed += padLen
 	}
 
 	// 6. Transfer the Entire Temp Data
@@ -531,7 +549,7 @@ func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, erro
 	}
 
 	// 6-4. Stream Send
-	buf := make([]byte, 1024)
+	buf := make([]byte, 32768)
 	var currentSent uint64 = 0
 	for {
 		nr, rErr := tempReader.Read(buf)
@@ -622,7 +640,7 @@ func (p *TP1) Receive(dst io.Writer) ([]byte, []byte, string, error) {
 
 	// 3-1. Stream Receive
 	p.setSent(0)
-	buf := make([]byte, 1024)
+	buf := make([]byte, 32768)
 	var currentReceived uint64 = 0
 	for currentReceived < totalSize {
 		remaining := totalSize - currentReceived

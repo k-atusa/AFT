@@ -1,4 +1,4 @@
-// test799 : project USAG TP1 protocol R5
+// test799 : project USAG TP1 protocol R6
 package main
 
 import (
@@ -113,8 +113,9 @@ type TP1 struct {
 	Mode    uint16
 	InMem   bool
 	DoPad   bool
-	SharedS string
+	SharedS []byte
 
+	mask  *Bencrypt.Masker
 	stage int
 	sent  uint64
 	total uint64
@@ -125,11 +126,13 @@ type TP1 struct {
 	max8  [8]byte
 }
 
-func (p *TP1) Init(mode uint16, inMem bool, doPad bool, shs string, conn net.Conn) {
+func (p *TP1) Init(mode uint16, inMem bool, doPad bool, shs []byte, conn net.Conn) {
 	p.Mode = mode
 	p.InMem = inMem
 	p.DoPad = doPad
-	p.SharedS = shs
+	p.mask = Bencrypt.GetMasker(-1)
+	p.SharedS, _ = p.mask.XOR(shs)
+
 	p.stage = 0
 	p.sent = 0
 	p.total = 0
@@ -233,9 +236,15 @@ func (p *TP1) handshakeSend() ([]byte, []byte, []byte, error) {
 		return nil, nil, nil, err
 	}
 
-	hashSrc := make([]byte, 0, len(myPub)+len(p.SharedS)) // myPub + SharedS
+	shs, err := p.mask.XOR(p.SharedS) // restore shared secret
+	defer clear(shs)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	hashSrc := make([]byte, 0, len(myPub)+len(shs)) // myPub + SharedS
 	hashSrc = append(hashSrc, myPub...)
-	hashSrc = append(hashSrc, []byte(p.SharedS)...)
+	hashSrc = append(hashSrc, shs...)
+	defer clear(hashSrc)
 	hash, _, err := hm.KDF(hashSrc, nonce)
 	if err != nil {
 		return nil, nil, nil, err
@@ -280,9 +289,10 @@ func (p *TP1) handshakeSend() ([]byte, []byte, []byte, error) {
 	}
 
 	// 7. Verify Receiver Auth
-	verifySrc := make([]byte, 0, len(peerPub)+len(p.SharedS)) // peerPub + SharedS
+	verifySrc := make([]byte, 0, len(peerPub)+len(shs)) // peerPub + SharedS
 	verifySrc = append(verifySrc, peerPub...)
-	verifySrc = append(verifySrc, []byte(p.SharedS)...)
+	verifySrc = append(verifySrc, shs...)
+	defer clear(verifySrc)
 	verifyHash, _, err := hm.KDF(verifySrc, peerNonce)
 	if err != nil {
 		return nil, nil, nil, err
@@ -354,10 +364,16 @@ func (p *TP1) handshakeReceive() ([]byte, []byte, []byte, error) {
 	}
 
 	// 5. Send Receiver Auth: Nonce(8B) + Hash(32B)
+	shs, err := p.mask.XOR(p.SharedS)
+	defer clear(shs)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	myNonce := Bencrypt.Random(8)
-	hashSrc := make([]byte, 0, len(myPub)+len(p.SharedS)) // myPub + SharedS
+	hashSrc := make([]byte, 0, len(myPub)+len(shs)) // myPub + SharedS
 	hashSrc = append(hashSrc, myPub...)
-	hashSrc = append(hashSrc, []byte(p.SharedS)...)
+	hashSrc = append(hashSrc, []byte(shs)...)
+	defer clear(hashSrc)
 	myHash, _, err := hm.KDF(hashSrc, myNonce)
 	if err != nil {
 		return nil, nil, nil, err
@@ -394,9 +410,10 @@ func (p *TP1) handshakeReceive() ([]byte, []byte, []byte, error) {
 	}
 
 	// 8. Verify Sender Auth
-	verifySrc := make([]byte, 0, len(peerPub)+len(p.SharedS)) // peerPub + SharedS
+	verifySrc := make([]byte, 0, len(peerPub)+len(shs)) // peerPub + SharedS
 	verifySrc = append(verifySrc, peerPub...)
-	verifySrc = append(verifySrc, []byte(p.SharedS)...)
+	verifySrc = append(verifySrc, shs...)
+	defer clear(verifySrc)
 	verifyHash, _, err := hm.KDF(verifySrc, peerNonce)
 	if err != nil {
 		return nil, nil, nil, err
@@ -413,6 +430,7 @@ func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, erro
 	p.setStage(STAGE_HANDSHAKE)
 	p.conn.SetDeadline(time.Now().Add(30 * time.Second)) // set deadline for handshake
 	peerPub, myPub, myPriv, err := p.handshakeSend()
+	defer clear(myPriv)
 	p.conn.SetDeadline(time.Time{}) // clear deadline
 	if err != nil {
 		p.setStage(STAGE_ERROR)
@@ -441,6 +459,7 @@ func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, erro
 	// 3. Prepare Opsec Header, set Body Key
 	ops := new(Opsec.Opsec)
 	ops.Reset()
+	defer clear(ops.BodyKey)
 	ops.Smsg = smsg
 	ops.SmsgInfo = []byte(p.SharedS)
 	ops.BodyAlgo = sm.Algo
@@ -591,6 +610,7 @@ func (p *TP1) Receive(dst io.Writer) ([]byte, []byte, string, error) {
 	p.setStage(STAGE_HANDSHAKE)
 	p.conn.SetDeadline(time.Now().Add(30 * time.Second)) // set deadline for handshake
 	peerPub, myPub, myPriv, err := p.handshakeReceive()
+	defer clear(myPriv)
 	p.conn.SetDeadline(time.Time{}) // clear deadline
 	if err != nil {
 		p.setStage(STAGE_ERROR)
@@ -686,6 +706,7 @@ func (p *TP1) Receive(dst io.Writer) ([]byte, []byte, string, error) {
 		tempReader = tempFile
 	}
 	ops := new(Opsec.Opsec)
+	defer clear(ops.BodyKey)
 	headBytes, err := ops.Read(tempReader, 0)
 	if err != nil {
 		p.setStage(STAGE_ERROR)

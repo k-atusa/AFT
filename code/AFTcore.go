@@ -11,22 +11,26 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/k-atusa/USAG-Lib/Bencode"
 	"github.com/k-atusa/USAG-Lib/Bencrypt"
 	"github.com/k-atusa/USAG-Lib/Icons"
 	"github.com/k-atusa/USAG-Lib/Opsec"
 )
 
-var AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.3.0"
+var AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.4.0"
+var METHOD_HASH string = "sha3"
+var METHOD_SYM string = "gcmx1"
+var LIMIT_BIG int64 = 512 * 1048576
 
 // AFT Vault
 type AVault struct {
 	Path  string
 	DoPad bool
-	limit int64
+	mask  *Bencrypt.Masker
 
 	AlgoType string // pbk2, arg2
 	Ext      string // webp, png, bin
-	VaultKey string
+	VaultKey []byte // vault masterkey
 
 	// name rule: *, */, */*
 	TreeView map[string][]string // treeview with plain name
@@ -47,7 +51,7 @@ func (a *AVault) prehead() []byte {
 	return append(ico, make([]byte, 128-len(ico)%128)...)
 }
 
-func (a *AVault) qread(path string, pw string, kf []byte) (data []byte, msg string, smsg string, err error) {
+func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg string, smsg string, err error) {
 	// open file
 	f, err := os.Open(path)
 	if err != nil {
@@ -57,6 +61,7 @@ func (a *AVault) qread(path string, pw string, kf []byte) (data []byte, msg stri
 
 	// read and decrypt header
 	ops := new(Opsec.Opsec)
+	defer clear(ops.BodyKey)
 	ops.Reset()
 	h, err := ops.Read(f, 0)
 	if err != nil {
@@ -64,7 +69,7 @@ func (a *AVault) qread(path string, pw string, kf []byte) (data []byte, msg stri
 	}
 	ops.View(h)
 	msg = ops.Msg
-	err = ops.Decpw([]byte(pw), kf)
+	err = ops.Decpw(pw, kf)
 	smsg = ops.Smsg
 	if err != nil {
 		return data, msg, smsg, err
@@ -75,10 +80,11 @@ func (a *AVault) qread(path string, pw string, kf []byte) (data []byte, msg stri
 
 	// decrypt body
 	sm := new(Bencrypt.SymMaster)
+	defer clear(sm.Key)
 	if err := sm.Init(ops.BodyAlgo, ops.BodyKey); err != nil {
 		return data, msg, smsg, err
 	}
-	buf := new(bytes.Buffer)
+	buf := bytes.NewBuffer(make([]byte, 0, ops.BodySize))
 	if err := sm.DeFile(f, ops.BodySize, buf); err != nil {
 		return data, msg, smsg, err
 	}
@@ -86,13 +92,14 @@ func (a *AVault) qread(path string, pw string, kf []byte) (data []byte, msg stri
 	return data, msg, smsg, nil
 }
 
-func (a *AVault) hwrite(msg string, smsg string, path string, pw string, kf []byte) error {
+func (a *AVault) hwrite(msg string, smsg string, path string, pw []byte, kf []byte) error {
 	// encrypt header
 	ops := new(Opsec.Opsec)
+	defer clear(ops.BodyKey)
 	ops.Reset()
 	ops.Msg = msg
 	ops.Smsg = smsg
-	header, err := ops.Encpw(a.AlgoType, []byte(pw), kf)
+	header, err := ops.Encpw(a.AlgoType, pw, kf)
 	if err != nil {
 		return err
 	}
@@ -127,19 +134,21 @@ func (a *AVault) hwrite(msg string, smsg string, path string, pw string, kf []by
 	return nil
 }
 
-func (a *AVault) qwrite(data []byte, path string, pw string) error {
+func (a *AVault) qwrite(data []byte, path string, pw []byte) error {
 	// prepare worker
 	sm := new(Bencrypt.SymMaster)
-	if err := sm.Init("gcm1", make([]byte, 44)); err != nil {
+	defer clear(sm.Key)
+	if err := sm.Init(METHOD_SYM, make([]byte, 44)); err != nil {
 		return err
 	}
 
 	// encrypt header
 	ops := new(Opsec.Opsec)
+	defer clear(ops.BodyKey)
 	ops.Reset()
 	ops.BodySize = sm.AfterSize(int64(len(data)))
-	ops.BodyAlgo = "gcm1"
-	header, err := ops.Encpw("sha3", []byte(pw), nil) // inner subsystem always use sha3
+	ops.BodyAlgo = METHOD_SYM
+	header, err := ops.Encpw(METHOD_HASH, pw, nil)
 	if err == nil {
 		err = sm.Init(sm.Algo, ops.BodyKey)
 	}
@@ -183,7 +192,7 @@ func (a *AVault) qwrite(data []byte, path string, pw string) error {
 }
 
 // load vault from disk
-func (a *AVault) Load(pw string, kf []byte) (string, error) {
+func (a *AVault) Load(pw []byte, kf []byte) (string, error) {
 	// 1. find account.*, name.* files
 	files, err := os.ReadDir(a.Path)
 	if err != nil {
@@ -211,10 +220,20 @@ func (a *AVault) Load(pw string, kf []byte) (string, error) {
 	if len(parts) != 3 {
 		return msg, errors.New("invalid account file")
 	}
-	a.AlgoType, a.Ext, a.VaultKey = parts[0], parts[1], parts[2]
+	a.mask = Bencrypt.GetMasker(-1)
+	tempkey, err := Bencode.Decode64(parts[2], "")
+	parts[2] = ""
+	defer clear(tempkey)
+	if err == nil {
+		a.VaultKey, err = a.mask.XOR(tempkey) // save VaultKey as masked
+		a.AlgoType, a.Ext = parts[0], parts[1]
+	}
+	if err != nil {
+		return msg, err
+	}
 
 	// 3. load name file
-	data, _, _, err := a.qread(nmPath, a.VaultKey, nil)
+	data, _, _, err := a.qread(nmPath, tempkey, nil)
 	if err != nil {
 		return msg, err
 	}
@@ -251,7 +270,6 @@ func (a *AVault) Load(pw string, kf []byte) (string, error) {
 	for parent := range a.TreeView {
 		sort.Strings(a.TreeView[parent])
 	}
-	a.limit = 512 * 1048576
 	return msg, nil
 }
 
@@ -271,14 +289,28 @@ func (a *AVault) StoreName() error {
 	// 2. write
 	path := filepath.Join(a.Path, "name."+a.Ext)
 	os.Rename(path, path+".old")
-	return a.qwrite(data, path, a.VaultKey)
+	key, err := a.mask.XOR(a.VaultKey) // restore VaultKey
+	defer clear(key)
+	if err != nil {
+		return err
+	}
+	return a.qwrite(data, path, key)
 }
 
 // store account to disk, !!! VaultKey is not changed !!!
-func (a *AVault) StoreAccount(pw string, kf []byte, msg string) error {
+func (a *AVault) StoreAccount(pw []byte, kf []byte, msg string) error {
 	path := filepath.Join(a.Path, "account."+a.Ext)
 	os.Rename(path, path+".old")
-	return a.hwrite(msg, a.AlgoType+"\n"+a.Ext+"\n"+a.VaultKey, path, pw, kf)
+	key, err := a.mask.XOR(a.VaultKey) // restore VaultKey
+	defer clear(key)
+	if err != nil {
+		return err
+	}
+	keystr, err := Bencode.Encode64(key, "", -1, -1)
+	if err != nil {
+		return err
+	}
+	return a.hwrite(msg, a.AlgoType+"\n"+a.Ext+"\n"+keystr, path, pw, kf)
 }
 
 // add file or folder to vault
@@ -501,6 +533,11 @@ func (a *AVault) Write(name string, data []byte) error {
 		return err
 	}
 	return a.StoreName()
+}
+
+// encrypt or decrypt big file
+func (a *AVault) Bypass(src string, dst string, isEnc bool) error {
+
 }
 
 // sync vault with file system

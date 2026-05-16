@@ -17,16 +17,16 @@ import (
 	"github.com/k-atusa/USAG-Lib/Opsec"
 )
 
-var AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.4.0"
-var METHOD_HASH string = "sha3"
-var METHOD_SYM string = "gcmx1"
-var LIMIT_BIG int64 = 512 * 1048576
+const AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.4.0"
+const METHOD_HASH string = "sha3"
+const METHOD_SYM string = "gcmx1"
+const LIMIT_BIG int64 = 512 * 1048576
 
 // AFT Vault
 type AVault struct {
 	Path  string
 	DoPad bool
-	mask  *Bencrypt.Masker
+	Mask  *Bencrypt.Masker
 
 	AlgoType string // pbk2, arg2
 	Ext      string // webp, png, bin
@@ -61,7 +61,7 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 
 	// read and decrypt header
 	ops := new(Opsec.Opsec)
-	defer clear(ops.BodyKey)
+	defer func() { clear(ops.BodyKey) }()
 	ops.Reset()
 	h, err := ops.Read(f, 0)
 	if err != nil {
@@ -80,7 +80,7 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 
 	// decrypt body
 	sm := new(Bencrypt.SymMaster)
-	defer clear(sm.Key)
+	defer func() { clear(sm.Key) }()
 	if err := sm.Init(ops.BodyAlgo, ops.BodyKey); err != nil {
 		return data, msg, smsg, err
 	}
@@ -95,7 +95,7 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 func (a *AVault) hwrite(msg string, smsg string, path string, pw []byte, kf []byte) error {
 	// encrypt header
 	ops := new(Opsec.Opsec)
-	defer clear(ops.BodyKey)
+	defer func() { clear(ops.BodyKey) }()
 	ops.Reset()
 	ops.Msg = msg
 	ops.Smsg = smsg
@@ -137,14 +137,14 @@ func (a *AVault) hwrite(msg string, smsg string, path string, pw []byte, kf []by
 func (a *AVault) qwrite(data []byte, path string, pw []byte) error {
 	// prepare worker
 	sm := new(Bencrypt.SymMaster)
-	defer clear(sm.Key)
+	defer func() { clear(sm.Key) }()
 	if err := sm.Init(METHOD_SYM, make([]byte, 44)); err != nil {
 		return err
 	}
 
 	// encrypt header
 	ops := new(Opsec.Opsec)
-	defer clear(ops.BodyKey)
+	defer func() { clear(ops.BodyKey) }()
 	ops.Reset()
 	ops.BodySize = sm.AfterSize(int64(len(data)))
 	ops.BodyAlgo = METHOD_SYM
@@ -191,6 +191,43 @@ func (a *AVault) qwrite(data []byte, path string, pw []byte) error {
 	return nil
 }
 
+// get encrypted name of file
+func (a *AVault) hexname(name string) string {
+	// check exists
+	cipher, exists := a.PtoCtbl[name]
+	if !exists {
+		// split name
+		parent, child := "", name
+		if idx := strings.Index(name, "/"); idx != -1 {
+			parent = name[:idx+1]
+			child = name[idx+1:]
+		}
+
+		// make new cipher name, update tables
+		for {
+			cChild := hex.EncodeToString(Bencrypt.Random(12)) + "." + a.Ext
+			if parent == "" {
+				cipher = cChild
+			} else {
+				cipher = a.PtoCtbl[parent] + cChild
+			}
+			if _, collision := a.CtoPtbl[cipher]; !collision {
+				break
+			}
+		}
+		a.PtoCtbl[name] = cipher
+		a.CtoPtbl[cipher] = name
+
+		// update treeview
+		if _, ok := a.TreeView[parent]; !ok {
+			a.TreeView[parent] = make([]string, 0)
+		}
+		a.TreeView[parent] = append(a.TreeView[parent], child)
+		sort.Strings(a.TreeView[parent])
+	}
+	return cipher
+}
+
 // load vault from disk
 func (a *AVault) Load(pw []byte, kf []byte) (string, error) {
 	// 1. find account.*, name.* files
@@ -220,12 +257,12 @@ func (a *AVault) Load(pw []byte, kf []byte) (string, error) {
 	if len(parts) != 3 {
 		return msg, errors.New("invalid account file")
 	}
-	a.mask = Bencrypt.GetMasker(-1)
+	a.Mask = Bencrypt.GetMasker(-1)
 	tempkey, err := Bencode.Decode64(parts[2], "")
 	parts[2] = ""
 	defer clear(tempkey)
 	if err == nil {
-		a.VaultKey, err = a.mask.XOR(tempkey) // save VaultKey as masked
+		a.VaultKey, err = a.Mask.XOR(tempkey) // save VaultKey as masked
 		a.AlgoType, a.Ext = parts[0], parts[1]
 	}
 	if err != nil {
@@ -289,7 +326,7 @@ func (a *AVault) StoreName() error {
 	// 2. write
 	path := filepath.Join(a.Path, "name."+a.Ext)
 	os.Rename(path, path+".old")
-	key, err := a.mask.XOR(a.VaultKey) // restore VaultKey
+	key, err := a.Mask.XOR(a.VaultKey) // restore VaultKey
 	defer clear(key)
 	if err != nil {
 		return err
@@ -301,16 +338,12 @@ func (a *AVault) StoreName() error {
 func (a *AVault) StoreAccount(pw []byte, kf []byte, msg string) error {
 	path := filepath.Join(a.Path, "account."+a.Ext)
 	os.Rename(path, path+".old")
-	key, err := a.mask.XOR(a.VaultKey) // restore VaultKey
+	key, err := a.Mask.XOR(a.VaultKey) // restore VaultKey
 	defer clear(key)
 	if err != nil {
 		return err
 	}
-	keystr, err := Bencode.Encode64(key, "", -1, -1)
-	if err != nil {
-		return err
-	}
-	return a.hwrite(msg, a.AlgoType+"\n"+a.Ext+"\n"+keystr, path, pw, kf)
+	return a.hwrite(msg, a.AlgoType+"\n"+a.Ext+"\n"+Bencode.Encode64h(key), path, pw, kf)
 }
 
 // add file or folder to vault
@@ -322,14 +355,20 @@ func (a *AVault) Add(path string, dirname string) error {
 
 	// add file, assume dirname exists
 	if !info.IsDir() {
-		if info.Size() > a.limit {
-			return errors.New("file size too big")
+		if info.Size() < LIMIT_BIG {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			return a.Write(dirname+info.Name(), data)
+		} else {
+			cipher := a.hexname(dirname + info.Name())
+			err := a.Bypass(path, filepath.Join(a.Path, cipher), true)
+			if err != nil {
+				return err
+			}
+			return a.StoreName()
 		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		return a.Write(dirname+info.Name(), data)
 	}
 
 	// add folder (single layer)
@@ -483,53 +522,24 @@ func (a *AVault) Read(name string) ([]byte, error) {
 		return nil, errors.New("file not found in vault")
 	}
 	path := filepath.Join(a.Path, cipher)
-	data, _, _, err := a.qread(path, a.VaultKey, nil)
+	key, err := a.Mask.XOR(a.VaultKey)
+	defer clear(key)
+	if err != nil {
+		return nil, err
+	}
+	data, _, _, err := a.qread(path, key, nil)
 	return data, err
 }
 
 // write file to vault, make new if not exists
 func (a *AVault) Write(name string, data []byte) error {
-	// check size
-	if int64(len(data)) > a.limit {
-		return errors.New("file size too big")
+	path := filepath.Join(a.Path, a.hexname(name))
+	key, err := a.Mask.XOR(a.VaultKey)
+	defer clear(key)
+	if err != nil {
+		return err
 	}
-
-	// check exists
-	cipher, exists := a.PtoCtbl[name]
-	if !exists {
-		// split name
-		parent, child := "", name
-		if idx := strings.Index(name, "/"); idx != -1 {
-			parent = name[:idx+1]
-			child = name[idx+1:]
-		}
-
-		// make new cipher name, update tables
-		for {
-			cChild := hex.EncodeToString(Bencrypt.Random(12)) + "." + a.Ext
-			if parent == "" {
-				cipher = cChild
-			} else {
-				cipher = a.PtoCtbl[parent] + cChild
-			}
-			if _, collision := a.CtoPtbl[cipher]; !collision {
-				break
-			}
-		}
-		a.PtoCtbl[name] = cipher
-		a.CtoPtbl[cipher] = name
-
-		// update treeview
-		if _, ok := a.TreeView[parent]; !ok {
-			a.TreeView[parent] = make([]string, 0)
-		}
-		a.TreeView[parent] = append(a.TreeView[parent], child)
-		sort.Strings(a.TreeView[parent])
-	}
-
-	// update file
-	path := filepath.Join(a.Path, cipher)
-	if err := a.qwrite(data, path, a.VaultKey); err != nil {
+	if err := a.qwrite(data, path, key); err != nil {
 		return err
 	}
 	return a.StoreName()
@@ -537,7 +547,101 @@ func (a *AVault) Write(name string, data []byte) error {
 
 // encrypt or decrypt big file
 func (a *AVault) Bypass(src string, dst string, isEnc bool) error {
+	// open files
+	srcf, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcf.Close()
+	dstf, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstf.Close()
 
+	// prepare worker
+	ops := new(Opsec.Opsec)
+	defer func() { clear(ops.BodyKey) }()
+	ops.Reset()
+	sm := new(Bencrypt.SymMaster)
+	defer func() { clear(sm.Key) }()
+	if err := sm.Init(METHOD_SYM, make([]byte, 44)); err != nil {
+		return err
+	}
+
+	// prepare key
+	key, err := a.Mask.XOR(a.VaultKey)
+	defer clear(key)
+	if err != nil {
+		return err
+	}
+
+	if isEnc {
+		// make header
+		info, err := srcf.Stat()
+		if err != nil {
+			return err
+		}
+		ops.BodySize = sm.AfterSize(info.Size())
+		ops.BodyAlgo = METHOD_SYM
+		header, err := ops.Encpw(METHOD_HASH, key, nil)
+		if err == nil {
+			err = sm.Init(sm.Algo, ops.BodyKey)
+		}
+		if err != nil {
+			return err
+		}
+
+		// write header
+		var writed int64 = 0
+		tb := a.prehead()
+		writed += int64(len(tb))
+		if _, err := dstf.Write(tb); err != nil {
+			return err
+		}
+		writed += int64(len(header)) + 6 // opsec magic
+		if len(header) >= 65535 {
+			writed += 2
+		}
+		if err := ops.Write(dstf, header); err != nil {
+			return err
+		}
+
+		// encrypt and pad
+		writed += ops.BodySize
+		if err := sm.EnFile(srcf, info.Size(), dstf); err != nil {
+			return err
+		}
+		if a.DoPad {
+			padLen := Opsec.PadLen(writed)
+			err = Opsec.PadFile(dstf, padLen)
+			if err != nil {
+				return err
+			}
+			writed += padLen
+		}
+
+	} else {
+		// read and decrypt header
+		h, err := ops.Read(srcf, 0)
+		if err != nil {
+			return err
+		}
+		ops.View(h)
+		err = ops.Decpw(key, nil)
+		if err != nil {
+			return err
+		}
+
+		// decrypt body
+		if err := sm.Init(ops.BodyAlgo, ops.BodyKey); err != nil {
+			return err
+		}
+		if err := sm.DeFile(srcf, ops.BodySize, dstf); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // sync vault with file system

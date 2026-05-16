@@ -3,7 +3,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,9 +25,13 @@ import (
 	"fyne.io/fyne/v2/layout"
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
+	"github.com/k-atusa/USAG-Lib/Bencode"
 	"github.com/k-atusa/USAG-Lib/Bencrypt"
 	"github.com/k-atusa/USAG-Lib/Opsec"
 )
+
+const LIMIT_TEXT int64 = 4 * 1048576
+const LIMIT_IMAGE int64 = 16 * 1048576
 
 // ===== config =====
 type U1Config struct {
@@ -69,10 +72,11 @@ type LoginPage struct {
 	Window fyne.Window
 	Config *U1Config
 	Vault  *AVault
+	mask   *Bencrypt.Masker
 
 	VaultPath string
 	KeyFile   []byte
-	Password  string
+	Password  []byte // not used
 	NewPath   string
 	ImgType   string
 	KeyAlgo   string
@@ -81,6 +85,7 @@ type LoginPage struct {
 func (l *LoginPage) Main(c *U1Config, v *AVault) {
 	l.Config = c
 	l.Vault = v
+	l.mask = Bencrypt.GetMasker(-1)
 	err := l.Config.Load()
 
 	l.App = app.New()
@@ -103,7 +108,7 @@ func (l *LoginPage) Fill() {
 		l.VaultPath = s
 		l.Vault.Path = s
 		lbl0a.SetText(s)
-		msg, _ := l.Vault.Load("", nil)
+		msg, _ := l.Vault.Load(nil, nil)
 		lbl0b.SetText("Msg: " + msg)
 	})
 	sel0.PlaceHolder = "Select Shortcut"
@@ -114,36 +119,39 @@ func (l *LoginPage) Fill() {
 		}
 		l.VaultPath, l.Vault.Path = path, path
 		lbl0a.SetText(path)
-		msg, _ := l.Vault.Load("", nil)
+		msg, _ := l.Vault.Load(nil, nil)
 		lbl0b.SetText("Msg: " + msg)
 	})
 
 	// group1: keyfile selection
 	lbl1 := widget.NewLabel("[0B 00000000] keyfile not selected")
-	btn1a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(lbl1, &l.KeyFile) })
+	btn1a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(lbl1, &l.KeyFile, l.mask) })
 	ent1 := widget.NewEntry()
 	ent1.SetPlaceHolder("port/secret: 8001/...")
-	btn1b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { ReceiveKF(l.Window, lbl1, ent1, &l.KeyFile) })
+	btn1b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { ReceiveKF(l.Window, lbl1, ent1, &l.KeyFile, l.mask) })
 	box1 := container.NewBorder(nil, nil, container.NewHBox(btn1a, btn1b), nil, ent1)
 
 	// group2: password and login
 	ent2 := widget.NewPasswordEntry()
 	ent2.SetPlaceHolder("Password")
 	btn2 := widget.NewButtonWithIcon("Login", theme.LoginIcon(), func() {
-		l.Password = ent2.Text
+		pw := Bencode.NormPW(ent2.Text)
+		kf, _ := l.mask.XOR(l.KeyFile)
+		defer clear(pw)
+		defer clear(kf)
+		ent2.SetText("")
+
 		l.Vault.Path = l.VaultPath
 		l.Vault.DoPad = l.Config.DoPad
 		if l.VaultPath == "" {
 			dialog.ShowError(fmt.Errorf("Vault path not selected"), l.Window)
 			return
 		}
-		_, err := l.Vault.Load(l.Password, l.KeyFile)
+		_, err := l.Vault.Load(pw, kf)
 		if err != nil {
 			dialog.ShowError(err, l.Window)
 			return
 		}
-		l.Password = ""
-		l.KeyFile = nil
 		l.switchToViewer()
 	})
 	btn2.Importance = widget.HighImportance
@@ -185,18 +193,21 @@ func (l *LoginPage) Fill() {
 			dialog.ShowError(fmt.Errorf("Target path not selected"), l.Window)
 			return
 		}
-		pw := ent2.Text
-		kf := l.KeyFile
+		pw := Bencode.NormPW(ent2.Text)
+		kf, _ := l.mask.XOR(l.KeyFile)
 		msg := ent6.Text
+		defer clear(pw)
+		defer clear(kf)
+		ent2.SetText("")
 
 		// 2. set config
 		v := &AVault{
 			Path:     l.NewPath,
 			DoPad:    l.Config.DoPad,
-			limit:    512 * 1048576,
+			Mask:     Bencrypt.GetMasker(-1),
 			AlgoType: l.KeyAlgo,
 			Ext:      l.ImgType,
-			VaultKey: hex.EncodeToString(Bencrypt.Random(48)),
+			VaultKey: Bencrypt.Random(64), // randgen is already masked
 			TreeView: make(map[string][]string),
 			PtoCtbl:  make(map[string]string),
 			CtoPtbl:  make(map[string]string),
@@ -381,6 +392,7 @@ func (v *ViewPage) ResetTimer() {
 	v.LogoutTime = time.Now().Add(time.Duration(v.Config.AutoExpire) * time.Minute)
 	v.LogoutTimer = time.AfterFunc(time.Duration(v.Config.AutoExpire)*time.Minute, func() {
 		fyne.Do(func() {
+			clear(v.Vault.VaultKey)
 			v.Vault = nil
 			v.Window.Close()
 		})
@@ -432,8 +444,8 @@ func (v *ViewPage) selected(path string) {
 	}
 	ext := strings.ToLower(filepath.Ext(path))
 	isImg := (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".webp" || ext == ".gif")
-	if !isImg && info.Size() > 4*1048576 {
-		v.ContentView.Objects = []fyne.CanvasObject{widget.NewLabel("Large File (4MB+)")}
+	if info.Size() > LIMIT_IMAGE || (!isImg && info.Size() > LIMIT_TEXT) {
+		v.ContentView.Objects = []fyne.CanvasObject{widget.NewLabel(fmt.Sprintf("Large File: %d B", info.Size()))}
 		return
 	}
 
@@ -452,6 +464,7 @@ func (v *ViewPage) selected(path string) {
 		entry := widget.NewMultiLineEntry()
 		entry.TextStyle = fyne.TextStyle{Monospace: true}
 		entry.SetText(string(data))
+		clear(data)
 
 		btnSave := widget.NewButtonWithIcon("Save Changes", theme.DocumentSaveIcon(), func() {
 			if err := v.Vault.Write(path, []byte(entry.Text)); err != nil {
@@ -493,8 +506,8 @@ func (v *ViewPage) transfer(cut bool) {
 			dialog.ShowError(err, v.Window)
 			return
 		}
-		if cut && len(data) > 1024 {
-			data = data[:1024]
+		if cut && len(data) > 4096 {
+			data = data[:4096]
 		}
 
 		// 3. Start Transfer
@@ -504,6 +517,10 @@ func (v *ViewPage) transfer(cut bool) {
 					os.WriteFile("panic-log.txt", []byte(fmt.Sprintf("panic while main.transfer: %v", r)), 0644)
 				}
 			}()
+			sharedS := Bencode.NormPW(entrySecret.Text)
+			fyne.Do(func() { entrySecret.SetText("") })
+			defer clear(sharedS)
+			defer clear(data)
 
 			// 3-1. Make TCP Socket
 			sock := new(TCPsocket)
@@ -518,21 +535,23 @@ func (v *ViewPage) transfer(cut bool) {
 			tp := new(TP1)
 			switch v.Vault.AlgoType {
 			case "arg2": // arg2 + gcm1 + pqc1
-				tp.Init(HASH_ARG2+SYM_GCM1+ASYM_PQC1, true, v.Config.DoPad, entrySecret.Text, sock.Conn)
+				tp.Init(HASH_ARG2+SYM_GCM1+ASYM_PQC1, true, v.Config.DoPad, sharedS, sock.Conn)
 			case "pbk2": // pbk2 + gcm1 + ecc1
-				tp.Init(HASH_PBK2+SYM_GCM1+ASYM_ECC1, true, v.Config.DoPad, entrySecret.Text, sock.Conn)
+				tp.Init(HASH_PBK2+SYM_GCM1+ASYM_ECC1, true, v.Config.DoPad, sharedS, sock.Conn)
 			default:
-				tp.Init(0, true, v.Config.DoPad, entrySecret.Text, sock.Conn)
+				tp.Init(0, true, v.Config.DoPad, sharedS, sock.Conn)
 			}
 			fromPub, toPub, err := tp.Send(bytes.NewReader(data), int64(len(data)), "")
+
 			if err != nil {
 				fyne.Do(func() { dialog.ShowError(err, v.Window) })
 				return
 			}
 
 			// 4. Update UI
+			crcv := Opsec.Crc32(data)
 			fyne.Do(func() {
-				dialog.ShowInformation("Transfer", fmt.Sprintf("[%dB, %s] from %s to %s", len(data), Opsec.Crc32(data), Opsec.Crc32(fromPub), Opsec.Crc32(toPub)), v.Window)
+				dialog.ShowInformation("Transfer", fmt.Sprintf("[%dB, %s] from %s to %s", len(data), crcv, Opsec.Crc32(fromPub), Opsec.Crc32(toPub)), v.Window)
 			})
 		}()
 	}, v.Window)
@@ -599,13 +618,9 @@ func (v *ViewPage) Export() {
 		count := 0
 
 		if v.CurPath != "" && !strings.HasSuffix(v.CurPath, "/") { // CASE 1: Single File
-			data, err := v.Vault.Read(v.CurPath)
-			if err != nil {
-				dialog.ShowError(err, v.Window)
-				return
-			}
-			outPath := filepath.Join(destRootDir, filepath.Base(v.CurPath))
-			if err := os.WriteFile(outPath, data, 0644); err != nil {
+			srcName := filepath.Join(v.Vault.Path, v.Vault.PtoCtbl[v.CurPath])
+			dstName := filepath.Join(destRootDir, filepath.Base(v.CurPath))
+			if err := v.Vault.Bypass(srcName, dstName, false); err != nil {
 				dialog.ShowError(err, v.Window)
 				return
 			}
@@ -628,14 +643,16 @@ func (v *ViewPage) Export() {
 					os.MkdirAll(outPath, 0755)
 					continue
 				}
-				data, err := v.Vault.Read(plain)
-				if err != nil {
+				if err := os.MkdirAll(filepath.Dir(outPath), 0755); err != nil {
+					dialog.ShowError(err, v.Window)
 					continue
 				}
-				os.MkdirAll(filepath.Dir(outPath), 0755)
-				if err := os.WriteFile(outPath, data, 0644); err == nil {
-					count++
+				srcName := filepath.Join(v.Vault.Path, v.Vault.PtoCtbl[plain])
+				if err := v.Vault.Bypass(srcName, outPath, false); err != nil {
+					dialog.ShowError(err, v.Window)
+					continue
 				}
+				count++
 			}
 		}
 		dialog.ShowInformation("Export Result", fmt.Sprintf("Exported %d items to\n%s", count, destRootDir), v.Window)
@@ -715,12 +732,13 @@ func (v *ViewPage) ResetPW() {
 
 	// group0: keyfile selection
 	var keyFile []byte
+	mask := Bencrypt.GetMasker(-1)
 	lbl0 := widget.NewLabel("[0B 00000000] keyfile not selected")
-	btn0a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(lbl0, &keyFile) })
+	btn0a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(lbl0, &keyFile, mask) })
 
 	ent0 := widget.NewEntry()
-	ent0.SetPlaceHolder("port: 8001")
-	btn0b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { ReceiveKF(w, lbl0, ent0, &keyFile) })
+	ent0.SetPlaceHolder("port/secret: 8001/...")
+	btn0b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { ReceiveKF(w, lbl0, ent0, &keyFile, mask) })
 	box0 := container.NewBorder(nil, nil, container.NewHBox(btn0a, btn0b), nil, ent0)
 
 	// group1: password entry
@@ -737,7 +755,14 @@ func (v *ViewPage) ResetPW() {
 			dialog.ShowError(errors.New("passwords do not match"), w)
 			return
 		}
-		if err := v.Vault.StoreAccount(ent1a.Text, keyFile, ent2.Text); err != nil {
+		pw := Bencode.NormPW(ent1a.Text)
+		defer clear(pw)
+		kf, _ := mask.XOR(keyFile)
+		defer clear(kf)
+		ent1a.SetText("")
+		ent1b.SetText("")
+
+		if err := v.Vault.StoreAccount(pw, kf, ent2.Text); err != nil {
 			dialog.ShowError(err, w)
 		} else {
 			dialog.ShowInformation("Success", "Password reset successfully.\nPlease restart using new credentials.", v.Window)

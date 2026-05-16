@@ -2,7 +2,6 @@
 package main
 
 import (
-	"encoding/hex"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/k-atusa/USAG-Lib/Bencode"
 	"github.com/k-atusa/USAG-Lib/Bencrypt"
 )
 
@@ -21,10 +21,11 @@ type Config struct {
 	AlgoType string
 	ImgType  string
 
-	PW    string
+	PW    []byte
 	KF    []byte
 	Msg   string
 	DoPad bool
+	mask  *Bencrypt.Masker
 }
 
 func (cfg *Config) Init() {
@@ -33,32 +34,41 @@ func (cfg *Config) Init() {
 	fs.StringVar(&cfg.Output, "o", "", "output folder")
 	fs.StringVar(&cfg.AlgoType, "algo", "arg2", "algorithm type: pbk2, arg2")
 	fs.StringVar(&cfg.ImgType, "img", "webp", "image type: webp, png, bin")
-	fs.StringVar(&cfg.PW, "pw", "", "password")
 	fs.StringVar(&cfg.Msg, "msg", "", "message")
 	fs.BoolVar(&cfg.DoPad, "nopad", false, "disable padding")
 
-	// get keyfile
-	kfpath := ""
+	// get password and keyfile
+	tempPW, kfpath := "", ""
+	fs.StringVar(&tempPW, "pw", "", "password")
 	fs.StringVar(&kfpath, "kf", "", "key file path")
 
-	// parse and get target folder
+	// parse and get target folder, mask
 	fs.Parse(os.Args[1:])
 	cfg.Target = fs.Arg(0)
 
+	// mask password
+	cfg.mask = Bencrypt.GetMasker(-1)
+	cfg.PW, _ = cfg.mask.XOR(Bencode.NormPW(tempPW))
+	tempPW = ""
+
+	// mask keyfile
+	var key []byte
+	defer func() { clear(key) }()
 	if kfpath == "" {
-		cfg.KF = nil
+		key = nil
 	} else if _, err := os.Stat(kfpath); err == nil { // file
 		fmt.Println("reading keyfile")
-		cfg.KF, err = os.ReadFile(kfpath)
+		key, err = os.ReadFile(kfpath)
 		if err != nil {
 			fmt.Println(err)
-			cfg.KF = nil
+			key = nil
 		}
 	}
-	if len(cfg.KF) > 1024 {
-		fmt.Println("keyfile is truncated to 1024B")
-		cfg.KF = cfg.KF[:1024]
+	if len(key) > 4096 {
+		fmt.Println("keyfile is truncated to 4096B")
+		key = key[:4096]
 	}
+	cfg.KF, _ = cfg.mask.XOR(key)
 
 	// flip flag
 	cfg.DoPad = !cfg.DoPad
@@ -85,15 +95,20 @@ func f_import() error {
 	v := &AVault{
 		Path:     Cfg.Output,
 		DoPad:    Cfg.DoPad,
-		limit:    512 * 1048576,
+		Mask:     Bencrypt.GetMasker(-1),
 		AlgoType: Cfg.AlgoType,
 		Ext:      Cfg.ImgType,
-		VaultKey: hex.EncodeToString(Bencrypt.Random(48)),
+		VaultKey: Bencrypt.Random(64), // randgen is already masked
 		TreeView: make(map[string][]string),
 		PtoCtbl:  make(map[string]string),
 		CtoPtbl:  make(map[string]string),
 	}
-	if err := v.StoreAccount(Cfg.PW, Cfg.KF, Cfg.Msg); err != nil {
+	defer clear(v.VaultKey)
+	pw, _ := Cfg.mask.XOR(Cfg.PW)
+	defer clear(pw)
+	kf, _ := Cfg.mask.XOR(Cfg.KF)
+	defer clear(kf)
+	if err := v.StoreAccount(pw, kf, Cfg.Msg); err != nil {
 		return err
 	}
 
@@ -126,7 +141,12 @@ func f_export() error {
 
 	// load vault
 	v := &AVault{Path: Cfg.Target}
-	msg, err := v.Load(Cfg.PW, Cfg.KF)
+	defer func() { clear(v.VaultKey) }()
+	pw, _ := Cfg.mask.XOR(Cfg.PW)
+	defer clear(pw)
+	kf, _ := Cfg.mask.XOR(Cfg.KF)
+	defer clear(kf)
+	msg, err := v.Load(pw, kf)
 	if msg != "" {
 		fmt.Printf("[msg] %s\n", msg)
 	}
@@ -147,19 +167,21 @@ func f_export() error {
 			continue
 		}
 
-		// file: read data
-		data, err := v.Read(plainName)
-		if err != nil {
-			fmt.Printf("Failed to read %s: %v\n", plainName, err)
-			continue
+		// find cipher path
+		cipher, ok := v.PtoCtbl[plainName]
+		if !ok {
+			return errors.New("file not found in vault")
 		}
+		cipherPath := filepath.Join(v.Path, cipher)
 
-		// write file
-		targetFilePath := filepath.Join(Cfg.Output, plainName)
-		if err := os.MkdirAll(filepath.Dir(targetFilePath), 0755); err != nil {
+		// make output path
+		targetPath := filepath.Join(Cfg.Output, plainName)
+		if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
 			return err
 		}
-		if err := os.WriteFile(targetFilePath, data, 0644); err != nil {
+
+		// decrypt file
+		if err := v.Bypass(cipherPath, targetPath, false); err != nil {
 			return err
 		}
 		fmt.Printf("Exported file: %s\n", plainName)
@@ -175,18 +197,25 @@ func f_view() error {
 		return errors.New("target is required for view")
 	}
 	v := &AVault{Path: Cfg.Target}
-	msg, err := v.Load(Cfg.PW, Cfg.KF)
+	defer func() { clear(v.VaultKey) }()
+	pw, _ := Cfg.mask.XOR(Cfg.PW)
+	defer clear(pw)
+	kf, _ := Cfg.mask.XOR(Cfg.KF)
+	defer clear(kf)
+	msg, err := v.Load(pw, kf)
 	if err != nil {
 		fmt.Printf("[msg] %s\n", msg)
 		return err
 	}
 
 	// print vault metadata
+	key, _ := Cfg.mask.XOR(v.VaultKey)
+	defer clear(key)
 	fmt.Println("========== AFT Vault Metadata ==========")
 	fmt.Printf("Message     : %s\n", msg)
 	fmt.Printf("Algorithm   : %s\n", v.AlgoType)
 	fmt.Printf("File Format : %s\n", v.Ext)
-	fmt.Printf("Master Key  : %s\n", v.VaultKey)
+	fmt.Printf("Master Key  : %s\n", Bencode.Encode64h(key))
 	fmt.Printf("Total Items : %d\n", len(v.PtoCtbl))
 
 	// print file list
@@ -216,7 +245,12 @@ func f_trim() error {
 		Path:  Cfg.Target,
 		DoPad: Cfg.DoPad,
 	}
-	msg, err := v.Load(Cfg.PW, Cfg.KF)
+	defer func() { clear(v.VaultKey) }()
+	pw, _ := Cfg.mask.XOR(Cfg.PW)
+	defer clear(pw)
+	kf, _ := Cfg.mask.XOR(Cfg.KF)
+	defer clear(kf)
+	msg, err := v.Load(pw, kf)
 	if err != nil {
 		return err
 	}
@@ -231,28 +265,65 @@ func f_trim() error {
 
 	// make new key
 	oldKey := v.VaultKey
-	newKey := hex.EncodeToString(Bencrypt.Random(48))
+	defer clear(oldKey)
+	newKey := Bencrypt.Random(64) // randgen is already masked
+	defer clear(newKey)
 	fmt.Println("New vault key created...")
 
 	// re-encrypt all files
+	errFlag := false
+	defer os.RemoveAll("./aft_plain.temp")
 	for plain, cipher := range v.PtoCtbl {
 		if strings.HasSuffix(plain, "/") {
 			continue
 		}
 		fmt.Printf("Re-encrypting: %s\n", plain)
 
+		// set oldkey, get filesize
 		v.VaultKey = oldKey
-		data, err := v.Read(plain)
+		fileName := filepath.Join(v.Path, cipher)
+		info, err := os.Stat(fileName)
 		if err != nil {
-			fmt.Printf("    Skip: Decryption failed (%v)\n", err)
+			fmt.Printf("    Skip: File not found (%v)\n", err)
 			continue
 		}
-		os.Rename(filepath.Join(v.Path, cipher), filepath.Join(v.Path, cipher+".temp"))
-		v.VaultKey = newKey
-		v.Write(plain, data)
+
+		if info.Size() > LIMIT_BIG {
+			fmt.Printf("    Warning: Plaintext generation at disk\n    (%s)\n", fileName)
+			if err := v.Bypass(fileName, "./aft_plain.temp", false); err != nil {
+				fmt.Printf("    Skip: Decryption failed (%v)\n", err)
+				errFlag = true
+				continue
+			}
+			os.Rename(fileName, fileName+".temp")
+			v.VaultKey = newKey
+			if err := v.Bypass("./aft_plain.temp", fileName, true); err != nil {
+				fmt.Printf("    Skip: Encryption failed (%v)\n", err)
+				errFlag = true
+				continue
+			}
+
+		} else {
+			data, err := v.Read(plain)
+			if err != nil {
+				fmt.Printf("    Skip: Decryption failed (%v)\n", err)
+				errFlag = true
+				continue
+			}
+			os.Rename(fileName, fileName+".temp")
+			v.VaultKey = newKey
+			if err := v.Write(plain, data); err != nil {
+				fmt.Printf("    Skip: Encryption failed (%v)\n", err)
+				errFlag = true
+				continue
+			}
+		}
 	}
 
 	// remove old files
+	if errFlag {
+		return errors.New("Error occurred during re-encryption")
+	}
 	filepath.Walk(v.Path, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -266,7 +337,7 @@ func f_trim() error {
 	// save account and name
 	fmt.Println("Saving account and name...")
 	v.VaultKey = newKey
-	err = v.StoreAccount(Cfg.PW, Cfg.KF, msg)
+	err = v.StoreAccount(pw, kf, msg)
 	if err != nil {
 		return err
 	}

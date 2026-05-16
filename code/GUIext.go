@@ -138,7 +138,6 @@ func ReceiveKF(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *
 	}
 	port := "8001"
 	var secret []byte
-	defer clear(secret) // clear secret after use
 	if portEnt.Text != "" {
 		parts := strings.Split(portEnt.Text, "/")
 		if parts[0] != "" {
@@ -146,7 +145,7 @@ func ReceiveKF(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *
 		}
 		if len(parts) > 1 {
 			secret = Bencode.NormPW(parts[1])
-			portEnt.Text = parts[0] // remove secret
+			portEnt.SetText(parts[0] + "/") // remove secret
 		}
 	}
 	for i, r := range ips {
@@ -173,8 +172,9 @@ func ReceiveKF(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr *
 
 		// 2-2. Accept Connection
 		tp := new(TP1)
-		defer clear(tp.SharedS)
+		defer func() { clear(tp.SharedS) }()
 		tp.Init(0, true, true, secret, sock.Conn) // receiver does not need to set mode
+		clear(secret)
 		buf := new(bytes.Buffer)
 		fromPub, toPub, _, err := tp.Receive(buf)
 		data := buf.Bytes()
@@ -263,8 +263,7 @@ func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr 
 		return
 	}
 	port := "8001"
-	var secret []byte
-	defer clear(secret) // clear secret after use
+	var secret []byte // slice ownership goes inside TP1
 	if portEnt.Text != "" {
 		parts := strings.Split(portEnt.Text, "/")
 		if parts[0] != "" {
@@ -272,7 +271,7 @@ func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr 
 		}
 		if len(parts) > 1 {
 			secret = Bencode.NormPW(parts[1])
-			portEnt.Text = parts[0] // remove secret
+			portEnt.SetText(parts[0] + "/") // remove secret
 		}
 	}
 	for i, r := range ips {
@@ -299,8 +298,9 @@ func ReceivePub(w fyne.Window, lbl *widget.Label, portEnt *widget.Entry, keyPtr 
 
 		// 2-2. Accept Connection
 		tp := new(TP1)
-		defer clear(tp.SharedS)
+		defer func() { clear(tp.SharedS) }()
 		tp.Init(0, true, true, secret, sock.Conn) // receiver does not need to set mode
+		clear(secret)
 		buf := new(bytes.Buffer)
 		fromPub, toPub, _, err := tp.Receive(buf)
 		data := buf.Bytes()

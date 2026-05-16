@@ -442,6 +442,7 @@ func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, erro
 
 	// 2. Prepare encryption worker
 	sm := new(Bencrypt.SymMaster)
+	defer func() { clear(sm.Key) }()
 	switch p.Mode & 0xF00 {
 	case SYM_GCM1:
 		err = sm.Init("gcm1", make([]byte, 44))
@@ -458,10 +459,10 @@ func (p *TP1) Send(src io.Reader, size int64, smsg string) ([]byte, []byte, erro
 
 	// 3. Prepare Opsec Header, set Body Key
 	ops := new(Opsec.Opsec)
+	defer func() { clear(ops.BodyKey) }()
 	ops.Reset()
-	defer clear(ops.BodyKey)
 	ops.Smsg = smsg
-	ops.SmsgInfo = []byte(p.SharedS)
+	ops.SmsgInfo = Opsec.EncodeInt(uint64(time.Now().Unix()), 8) // current time
 	ops.BodyAlgo = sm.Algo
 	ops.BodySize = sm.AfterSize(size)
 	var opsHead []byte
@@ -706,7 +707,7 @@ func (p *TP1) Receive(dst io.Writer) ([]byte, []byte, string, error) {
 		tempReader = tempFile
 	}
 	ops := new(Opsec.Opsec)
-	defer clear(ops.BodyKey)
+	defer func() { clear(ops.BodyKey) }()
 	headBytes, err := ops.Read(tempReader, 0)
 	if err != nil {
 		p.setStage(STAGE_ERROR)
@@ -717,14 +718,15 @@ func (p *TP1) Receive(dst io.Writer) ([]byte, []byte, string, error) {
 		p.setStage(STAGE_ERROR)
 		return peerPub, myPub, "", err
 	}
-	if !bytes.Equal(ops.SmsgInfo, []byte(p.SharedS)) {
+	if uint64(time.Now().Unix()) > Opsec.DecodeInt(ops.SmsgInfo)+7200 { // session lasts 2hrs (unique nonce)
 		p.setStage(STAGE_ERROR)
-		return peerPub, myPub, "", errors.New("invalid session shared secret")
+		return peerPub, myPub, "", errors.New("Connection timed out")
 	}
 
 	// 6. Prepare decryption worker
 	p.setStage(STAGE_ENCRYPTING)
 	sm := new(Bencrypt.SymMaster)
+	defer func() { clear(sm.Key) }()
 	if err := sm.Init(ops.BodyAlgo, ops.BodyKey); err != nil {
 		p.setStage(STAGE_ERROR)
 		return peerPub, myPub, "", err

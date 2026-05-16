@@ -1,4 +1,4 @@
-# AFT-desktop v1.3.0
+# AFT-desktop v1.4.0
 
 project USAG: Advanced File Transfer desktop version
 
@@ -36,7 +36,7 @@ CLI version does not support file transfer function. However, trim function is s
 | Delete | Deletes the selected item from the vault. | 선택 항목을 삭제합니다. |
 | TrSend | Transfers a file in "KeyFile" mode (partial data). | 키 파일 모드로 파일을 전송합니다. |
 | Send | Transfers a file in "Lossless" mode (complete data). | 무손실 모드로 파일을 전송합니다. |
-| Reset Password | Resets the vault password **without changing public keys.** | 볼트의 비밀번호를 재설정합니다. **공개키는 교체되지 않습니다.** |
+| Reset Password | Resets the vault password **without changing masterkey.** | 볼트의 비밀번호를 재설정합니다. **마스터키는 교체되지 않습니다.** |
 | Extend | Extends the login session. | 로그인 세션을 연장합니다. |
 | Logout | Terminates the login session. | 로그인 세션을 종료합니다. |
 
@@ -45,7 +45,7 @@ CLI version does not support file transfer function. However, trim function is s
 - 로그인 화면 좌측은 기존 저장소에 로그인하는 기능이며, 우측은 새 저장소를 생성하는 기능입니다. The left side of the login screen is for logging into an existing vault, and the right side is for creating a new vault.
 - 뷰어 화면에서 파일 목록을 확인하고 텍스트와 이미지 데이터를 볼 수 있습니다. You can view the file list and text/image data in the viewer screen.
 
-**KeyFile is supposed to be smaller than 1024 bytes. Send function cuts the file if it is larger than 1024 bytes.**
+**KeyFile is supposed to be smaller than 4096 bytes. Send function cuts the file if it is larger than 4096 bytes.**
 
 **Empty password and keyfile are allowed to maximize user control.**
 
@@ -96,7 +96,3 @@ gcc --version
 sudo apt install zenity
 sudo apt-get install pkg-config libgl1-mesa-dev libx11-dev libxcursor-dev libxrandr-dev libxinerama-dev libxi-dev libxxf86vm-dev
 ```
-
-#### Algorithm standard
-
-`sha3` and `gcm1` are used for inner encryption.

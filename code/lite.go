@@ -48,7 +48,9 @@ func (cfg *Config) Init() {
 
 	// mask password
 	cfg.mask = Bencrypt.GetMasker(-1)
-	cfg.PW, _ = cfg.mask.XOR(Bencode.NormPW(tempPW))
+	pwb := Bencode.NormPW(tempPW)
+	defer clear(pwb)
+	cfg.PW, _ = cfg.mask.XOR(pwb)
 	tempPW = ""
 
 	// mask keyfile

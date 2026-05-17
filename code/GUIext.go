@@ -34,6 +34,12 @@ func (m U1Theme) Color(name fyne.ThemeColorName, variant fyne.ThemeVariant) colo
 		}
 		return color.Black
 	}
+	if name == theme.ColorNameDisabled { // disabled text color
+		if variant == theme.VariantDark {
+			return color.RGBA{R: 200, G: 200, B: 200, A: 255}
+		}
+		return color.RGBA{R: 80, G: 80, B: 80, A: 255}
+	}
 	return theme.DefaultTheme().Color(name, variant)
 }
 

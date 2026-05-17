@@ -30,7 +30,7 @@ import (
 	"github.com/k-atusa/USAG-Lib/Opsec"
 )
 
-const LIMIT_TEXT int64 = 4 * 1048576
+const LIMIT_TEXT int64 = 512 * 1024
 const LIMIT_IMAGE int64 = 16 * 1048576
 
 // ===== config =====

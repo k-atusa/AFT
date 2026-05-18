@@ -21,8 +21,8 @@ type Config struct {
 	AlgoType string
 	ImgType  string
 
-	PW    []byte
-	KF    []byte
+	PW    []byte // masked
+	KF    []byte // masked
 	Msg   string
 	DoPad bool
 	mask  *Bencrypt.Masker
@@ -100,7 +100,7 @@ func f_import() error {
 		Mask:     Bencrypt.GetMasker(-1),
 		AlgoType: Cfg.AlgoType,
 		Ext:      Cfg.ImgType,
-		VaultKey: Bencrypt.Random(64), // randgen is already masked
+		VaultKey: Bencrypt.Random(64), // randgen acts like masked
 		TreeView: make(map[string][]string),
 		PtoCtbl:  make(map[string]string),
 		CtoPtbl:  make(map[string]string),

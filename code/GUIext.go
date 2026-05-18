@@ -219,8 +219,8 @@ func ChooseKF(lbl *widget.Label, keyPtr *[]byte, sel string, mp map[string][]byt
 }
 
 func SelectPub(lbl *widget.Label, keyPtr *[]byte, basic []byte, mask *Bencrypt.Masker) {
-	var data []byte = basic
-	name := "default"
+	var data []byte = nil
+	name := ""
 
 	// 1. open file
 	path, err := ZenityFile("")
@@ -241,21 +241,27 @@ func SelectPub(lbl *widget.Label, keyPtr *[]byte, basic []byte, mask *Bencrypt.M
 			} else {
 				data, err = Bencode.Decode64(string(data), "") // no splitter
 			}
-			if err == nil {
-				name = filepath.Base(path)
+		}
+		if err == nil {
+			name = filepath.Base(path)
+			if mask != nil {
+				temp, _ := mask.XOR(data)
+				clear(data)
+				data = temp
 			}
 		}
 	}
 	if err != nil {
 		name = fmt.Sprintf("default (%.20s)", err.Error())
+		data = basic // if mask is enabled, basic is already masked
 	}
 
-	// 3. Mask data, Update UI
+	// 3. Update UI
 	crcv := Opsec.Crc32(data)
 	if mask != nil {
 		temp, _ := mask.XOR(data)
-		clear(data)
-		data = temp
+		crcv = Opsec.Crc32(temp)
+		clear(temp)
 	}
 	*keyPtr = data
 	lbl.SetText(fmt.Sprintf("[%dB, %s] %s", len(data), crcv, name))

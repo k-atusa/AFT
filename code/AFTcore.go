@@ -30,7 +30,7 @@ type AVault struct {
 
 	AlgoType string // pbk2, arg2
 	Ext      string // webp, png, bin
-	VaultKey []byte // vault masterkey
+	VaultKey []byte // vault masterkey (masked)
 
 	// name rule: *, */, */*
 	TreeView map[string][]string // treeview with plain name
@@ -69,7 +69,7 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 	}
 	ops.View(h)
 	msg = ops.Msg
-	err = ops.Decpw(pw, kf)
+	err = ops.Decpw(pw, kf) // plain pw kf
 	smsg = ops.Smsg
 	if err != nil {
 		return data, msg, smsg, err
@@ -99,7 +99,7 @@ func (a *AVault) hwrite(msg string, smsg string, path string, pw []byte, kf []by
 	ops.Reset()
 	ops.Msg = msg
 	ops.Smsg = smsg
-	header, err := ops.Encpw(a.AlgoType, pw, kf)
+	header, err := ops.Encpw(a.AlgoType, pw, kf) // plain pw kf
 	if err != nil {
 		return err
 	}
@@ -148,7 +148,7 @@ func (a *AVault) qwrite(data []byte, path string, pw []byte) error {
 	ops.Reset()
 	ops.BodySize = sm.AfterSize(int64(len(data)))
 	ops.BodyAlgo = METHOD_SYM
-	header, err := ops.Encpw(METHOD_HASH, pw, nil)
+	header, err := ops.Encpw(METHOD_HASH, pw, nil) // plain pw
 	if err == nil {
 		err = sm.Init(sm.Algo, ops.BodyKey)
 	}
@@ -249,7 +249,7 @@ func (a *AVault) Load(pw []byte, kf []byte) (string, error) {
 	}
 
 	// 2. load account file, set (AlgoType, Ext, VaultKey)
-	_, msg, smsg, err := a.qread(accPath, pw, kf)
+	_, msg, smsg, err := a.qread(accPath, pw, kf) // plain pw kf
 	if err != nil {
 		return msg, err
 	}
@@ -343,7 +343,7 @@ func (a *AVault) StoreAccount(pw []byte, kf []byte, msg string) error {
 	if err != nil {
 		return err
 	}
-	return a.hwrite(msg, a.AlgoType+"\n"+a.Ext+"\n"+Bencode.Encode64h(key), path, pw, kf)
+	return a.hwrite(msg, a.AlgoType+"\n"+a.Ext+"\n"+Bencode.Encode64h(key), path, pw, kf) // plain pw kf
 }
 
 // add file or folder to vault

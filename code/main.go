@@ -75,7 +75,7 @@ type LoginPage struct {
 	mask   *Bencrypt.Masker
 
 	VaultPath string
-	KeyFile   []byte
+	KeyFile   []byte // masked
 	Password  []byte // not used
 	NewPath   string
 	ImgType   string
@@ -207,7 +207,7 @@ func (l *LoginPage) Fill() {
 			Mask:     Bencrypt.GetMasker(-1),
 			AlgoType: l.KeyAlgo,
 			Ext:      l.ImgType,
-			VaultKey: Bencrypt.Random(64), // randgen is already masked
+			VaultKey: Bencrypt.Random(64), // randgen acts like masked
 			TreeView: make(map[string][]string),
 			PtoCtbl:  make(map[string]string),
 			CtoPtbl:  make(map[string]string),

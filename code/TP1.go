@@ -113,7 +113,7 @@ type TP1 struct {
 	Mode    uint16
 	InMem   bool
 	DoPad   bool
-	SharedS []byte
+	SharedS []byte // stored as masked
 
 	mask  *Bencrypt.Masker
 	stage int
@@ -131,7 +131,7 @@ func (p *TP1) Init(mode uint16, inMem bool, doPad bool, shs []byte, conn net.Con
 	p.InMem = inMem
 	p.DoPad = doPad
 	p.mask = Bencrypt.GetMasker(-1)
-	p.SharedS, _ = p.mask.XOR(shs)
+	p.SharedS, _ = p.mask.XOR(shs) // param shs is plain
 
 	p.stage = 0
 	p.sent = 0

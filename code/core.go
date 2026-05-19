@@ -20,7 +20,7 @@ import (
 const AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.4.0"
 const METHOD_HASH string = "sha3"
 const METHOD_SYM string = "gcmx1"
-const LIMIT_BIG int64 = 512 * 1048576
+const LIMIT_MEM int64 = 512 * 1048576
 
 // AFT Vault
 type AVault struct {
@@ -355,7 +355,7 @@ func (a *AVault) Add(path string, dirname string) error {
 
 	// add file, assume dirname exists
 	if !info.IsDir() {
-		if info.Size() < LIMIT_BIG {
+		if info.Size() < LIMIT_MEM {
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return err

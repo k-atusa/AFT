@@ -28,6 +28,8 @@ import (
 	"github.com/k-atusa/USAG-Lib/Bencode"
 	"github.com/k-atusa/USAG-Lib/Bencrypt"
 	"github.com/k-atusa/USAG-Lib/Opsec"
+	"github.com/taewook427/USAG-KOX/BaseUI"
+	"github.com/taewook427/USAG-KOX/TP1"
 )
 
 const LIMIT_TEXT int64 = 512 * 1024
@@ -42,7 +44,7 @@ type U1Config struct {
 }
 
 func (c *U1Config) Load() error {
-	data, err := os.ReadFile(filepath.Join(GetPath(), "config.json"))
+	data, err := os.ReadFile(filepath.Join(TP1.GetPath(), "config.json"))
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			c.AutoExpire = 20
@@ -54,7 +56,7 @@ func (c *U1Config) Load() error {
 		return err
 	}
 	err = json.Unmarshal(data, c)
-	FyneSize = c.Size
+	BaseUI.FyneSize = c.Size
 	return err
 }
 
@@ -63,7 +65,7 @@ func (c *U1Config) Store() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(filepath.Join(GetPath(), "config.json"), data, 0644)
+	return os.WriteFile(filepath.Join(TP1.GetPath(), "config.json"), data, 0644)
 }
 
 // ===== login =====
@@ -76,7 +78,6 @@ type LoginPage struct {
 
 	VaultPath string
 	KeyFile   []byte // masked
-	Password  []byte // not used
 	NewPath   string
 	ImgType   string
 	KeyAlgo   string
@@ -89,10 +90,10 @@ func (l *LoginPage) Main(c *U1Config, v *AVault) {
 	err := l.Config.Load()
 
 	l.App = app.New()
-	l.App.Settings().SetTheme(&U1Theme{})
+	l.App.Settings().SetTheme(new(BaseUI.U1Theme))
 	l.Window = l.App.NewWindow("AFT Vault - Login")
 	l.Fill()
-	l.Window.Resize(fyne.NewSize(720*FyneSize, 480*FyneSize))
+	l.Window.Resize(fyne.NewSize(720*BaseUI.FyneSize, 480*BaseUI.FyneSize))
 	l.Window.CenterOnScreen()
 	if err != nil {
 		dialog.ShowError(fmt.Errorf("Config Load Fail: %s", err), l.Window)
@@ -113,7 +114,7 @@ func (l *LoginPage) Fill() {
 	})
 	sel0.PlaceHolder = "Select Shortcut"
 	btn0 := widget.NewButtonWithIcon("Select Manually", theme.FolderOpenIcon(), func() {
-		path, err := ZenityFolder("")
+		path, err := BaseUI.ZenityFolder("")
 		if err != nil {
 			return
 		}
@@ -125,10 +126,10 @@ func (l *LoginPage) Fill() {
 
 	// group1: keyfile selection
 	lbl1 := widget.NewLabel("[0B 00000000] keyfile not selected")
-	btn1a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(lbl1, &l.KeyFile, l.mask) })
+	btn1a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { BaseUI.SelectKF(lbl1, &l.KeyFile, l.mask) })
 	ent1 := widget.NewEntry()
 	ent1.SetPlaceHolder("port/secret: 8001/...")
-	btn1b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { ReceiveKF(l.Window, lbl1, ent1, &l.KeyFile, l.mask) })
+	btn1b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { BaseUI.ReceiveKF(l.Window, lbl1, ent1, &l.KeyFile, l.mask) })
 	box1 := container.NewBorder(nil, nil, container.NewHBox(btn1a, btn1b), nil, ent1)
 
 	// group2: password and login
@@ -168,7 +169,7 @@ func (l *LoginPage) Fill() {
 	// group4: new vault path selection
 	lbl4 := widget.NewLabelWithStyle("Path not selected", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	btn4 := widget.NewButtonWithIcon("Select", theme.FolderOpenIcon(), func() {
-		path, err := ZenityFolder("")
+		path, err := BaseUI.ZenityFolder("")
 		if err != nil {
 			return
 		}
@@ -284,7 +285,7 @@ func (v *ViewPage) Main(a fyne.App, c *U1Config, av *AVault) {
 	v.Config = c
 	v.Window = v.App.NewWindow("AFT Vault - Viewer")
 	v.Fill()
-	v.Window.Resize(fyne.NewSize(800*FyneSize, 480*FyneSize))
+	v.Window.Resize(fyne.NewSize(800*BaseUI.FyneSize, 480*BaseUI.FyneSize))
 	v.Window.CenterOnScreen()
 	v.Window.Show()
 }
@@ -523,7 +524,7 @@ func (v *ViewPage) transfer(cut bool) {
 			defer clear(data)
 
 			// 3-1. Make TCP Socket
-			sock := new(TCPsocket)
+			sock := new(TP1.TCPsocket)
 			err := sock.MakeConnection(addr)
 			defer sock.Close()
 			if err != nil {
@@ -532,12 +533,12 @@ func (v *ViewPage) transfer(cut bool) {
 			}
 
 			// 3-2. Accept Connection
-			tp := new(TP1)
+			tp := new(TP1.TP1)
 			switch v.Vault.AlgoType {
 			case "arg2": // arg2 + gcm1 + pqc1
-				tp.Init(HASH_ARG2+SYM_GCM1+ASYM_PQC1, true, v.Config.DoPad, sharedS, sock.Conn)
+				tp.Init(TP1.HASH_ARG2+TP1.SYM_GCM1+TP1.ASYM_PQC1, true, v.Config.DoPad, sharedS, sock.Conn)
 			case "pbk2": // pbk2 + gcm1 + ecc1
-				tp.Init(HASH_PBK2+SYM_GCM1+ASYM_ECC1, true, v.Config.DoPad, sharedS, sock.Conn)
+				tp.Init(TP1.HASH_PBK2+TP1.SYM_GCM1+TP1.ASYM_ECC1, true, v.Config.DoPad, sharedS, sock.Conn)
 			default:
 				tp.Init(0, true, v.Config.DoPad, sharedS, sock.Conn)
 			}
@@ -561,7 +562,7 @@ func (v *ViewPage) transfer(cut bool) {
 func (v *ViewPage) ImportFile() {
 	// Select files
 	defer v.TreeView.Refresh()
-	paths, err := ZenityMultiFiles("")
+	paths, err := BaseUI.ZenityMultiFiles("")
 	if err != nil {
 		dialog.ShowError(err, v.Window)
 		return
@@ -590,7 +591,7 @@ func (v *ViewPage) ImportFile() {
 
 func (v *ViewPage) ImportFolder() {
 	defer v.TreeView.Refresh()
-	path, err := ZenityFolder("")
+	path, err := BaseUI.ZenityFolder("")
 	if err != nil {
 		dialog.ShowError(err, v.Window)
 		return
@@ -611,7 +612,7 @@ func (v *ViewPage) Export() {
 		if !b {
 			return
 		}
-		destRootDir, err := ZenityFolder("")
+		destRootDir, err := BaseUI.ZenityFolder("")
 		if err != nil {
 			return
 		}
@@ -727,18 +728,18 @@ func (v *ViewPage) Delete() {
 func (v *ViewPage) ResetPW() {
 	// Create new window for password reset
 	w := v.App.NewWindow("Reset Password")
-	w.Resize(fyne.NewSize(400*FyneSize, 300*FyneSize))
+	w.Resize(fyne.NewSize(400*BaseUI.FyneSize, 300*BaseUI.FyneSize))
 	w.CenterOnScreen()
 
 	// group0: keyfile selection
 	var keyFile []byte
 	mask := Bencrypt.GetMasker(-1)
 	lbl0 := widget.NewLabel("[0B 00000000] keyfile not selected")
-	btn0a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { SelectKF(lbl0, &keyFile, mask) })
+	btn0a := widget.NewButtonWithIcon("Select", theme.FileIcon(), func() { BaseUI.SelectKF(lbl0, &keyFile, mask) })
 
 	ent0 := widget.NewEntry()
 	ent0.SetPlaceHolder("port/secret: 8001/...")
-	btn0b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { ReceiveKF(w, lbl0, ent0, &keyFile, mask) })
+	btn0b := widget.NewButtonWithIcon("Receive", theme.DownloadIcon(), func() { BaseUI.ReceiveKF(w, lbl0, ent0, &keyFile, mask) })
 	box0 := container.NewBorder(nil, nil, container.NewHBox(btn0a, btn0b), nil, ent0)
 
 	// group1: password entry

@@ -24,6 +24,7 @@ project USAG: Advanced File Transfer desktop version
 - trim: 볼트의 논리적 구조와 파일시스템의 물리적 구조를 동기화하고 암호화 키 쌍을 새 것으로 교체합니다. Sync logical structure of vault with physical file system, replace encryption key pair to new one.
 
 CLI version does not support file transfer function. However, trim function is supported only with CLI version.
+AFT Vault is designed to store small secret files like private keys.
 
 ## GUI Usage
 
@@ -45,9 +46,8 @@ CLI version does not support file transfer function. However, trim function is s
 - 로그인 화면 좌측은 기존 저장소에 로그인하는 기능이며, 우측은 새 저장소를 생성하는 기능입니다. The left side of the login screen is for logging into an existing vault, and the right side is for creating a new vault.
 - 뷰어 화면에서 파일 목록을 확인하고 텍스트와 이미지 데이터를 볼 수 있습니다. You can view the file list and text/image data in the viewer screen.
 
-**KeyFile is supposed to be smaller than 4096 bytes. Send function cuts the file if it is larger than 4096 bytes.**
-
-**Empty password and keyfile are allowed to maximize user control.**
+KeyFile is supposed to be smaller than 4096 bytes. TrSend cuts the file if it is larger than 4096 bytes.
+Empty password and keyfile are allowed to maximize user control.
 
 #### config
 
@@ -60,34 +60,35 @@ CLI version does not support file transfer function. However, trim function is s
 
 ## Build Executable
 
-This application uses Go programming language. [Install Go](https://go.dev/) to build yourself, or download pre-built release binary. It takes few minutes to download and build GUI version.
+This application uses Go programming language. [Install Go](https://go.dev/) to build yourself, or download pre-built release binary.
+It takes few minutes to download and build GUI version. If you have different version of Go, remove `go.mod`, `go.sum` and retry.
 
 windows cli
 ```bat
 go mod init example.com
 go mod tidy
-go build -ldflags="-s -w" -trimpath -o aft-lite.exe AFTcore.go lite.go
+go build -ldflags="-s -w" -trimpath -o aft-lite.exe core.go lite.go
 ```
 
 linux/mac cli
 ```bash
 go mod init example.com
 go mod tidy
-go build -ldflags="-s -w" -trimpath -o aft-lite AFTcore.go lite.go
+go build -ldflags="-s -w" -trimpath -o aft-lite core.go lite.go
 ```
 
 windows gui
 ```bat
 go mod init example.com
 go mod tidy
-go build -ldflags="-H windowsgui -s -w" -trimpath -o aft.exe TP1.go GUIext.go AFTcore.go main.go
+go build -ldflags="-H windowsgui -s -w" -trimpath -o aft.exe core.go main.go
 ```
 
 linux/mac gui
 ```bash
 go mod init example.com
 go mod tidy
-go build -ldflags="-s -w" -trimpath -o aft TP1.go GUIext.go AFTcore.go main.go
+go build -ldflags="-s -w" -trimpath -o aft core.go main.go
 ```
 
 fyne2 GUI requires C compiler and X11 environment. Selection dialog requires Zenity. check and install following packages before build.

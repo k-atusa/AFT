@@ -11,6 +11,7 @@ import (
 
 	"github.com/k-atusa/USAG-Lib/Bencode"
 	"github.com/k-atusa/USAG-Lib/Bencrypt"
+	"github.com/k-atusa/USAG-Lib/Opsec"
 )
 
 // command line parser
@@ -67,13 +68,15 @@ func (cfg *Config) Init() {
 		}
 	}
 	if len(key) > 4096 {
-		fmt.Println("keyfile is truncated to 4096B")
 		key = key[:4096]
 	}
+	crcv_kf := Opsec.Crc32(key)
 	cfg.KF, _ = cfg.mask.XOR(key)
 
-	// flip flag
+	// flip flag, end configuration
 	cfg.DoPad = !cfg.DoPad
+	fmt.Printf("PW: %dB, KF: %dB (%s)\n", len(cfg.PW), len(cfg.KF), crcv_kf)
+	fmt.Println("configuration completed")
 }
 
 // main functions
@@ -290,7 +293,7 @@ func f_trim() error {
 			continue
 		}
 
-		if info.Size() > LIMIT_BIG {
+		if info.Size() > LIMIT_MEM {
 			fmt.Printf("    Warning: Plaintext generation at disk\n    (%s)\n", fileName)
 			if err := v.Bypass(fileName, "./aft_plain.temp", false); err != nil {
 				fmt.Printf("    Skip: Decryption failed (%v)\n", err)
@@ -356,7 +359,6 @@ func main() {
 	}()
 	var err error
 	Cfg.Init()
-	fmt.Println("Configuration completed")
 	switch Cfg.Mode {
 	case "import":
 		err = f_import()

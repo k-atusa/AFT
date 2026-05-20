@@ -393,7 +393,7 @@ func (v *ViewPage) ResetTimer() {
 	v.LogoutTime = time.Now().Add(time.Duration(v.Config.AutoExpire) * time.Minute)
 	v.LogoutTimer = time.AfterFunc(time.Duration(v.Config.AutoExpire)*time.Minute, func() {
 		fyne.Do(func() {
-			clear(v.Vault.VaultKey)
+			sclear(v.Vault.VaultKey)
 			v.Vault = nil
 			v.Window.Close()
 		})
@@ -465,7 +465,7 @@ func (v *ViewPage) selected(path string) {
 		entry := widget.NewMultiLineEntry()
 		entry.TextStyle = fyne.TextStyle{Monospace: true}
 		entry.SetText(string(data))
-		clear(data)
+		sclear(data)
 
 		btnSave := widget.NewButtonWithIcon("Save Changes", theme.DocumentSaveIcon(), func() {
 			if err := v.Vault.Write(path, []byte(entry.Text)); err != nil {

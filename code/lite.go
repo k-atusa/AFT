@@ -145,7 +145,10 @@ func f_export() error {
 	}
 
 	// load vault
-	v := &AVault{Path: Cfg.Target}
+	v := &AVault{
+		Path: Cfg.Target,
+		Mask: Bencrypt.GetMasker(-1),
+	}
 	defer func() { sclear(v.VaultKey) }()
 	pw, _ := Cfg.mask.XOR(Cfg.PW)
 	defer sclear(pw)
@@ -201,7 +204,10 @@ func f_view() error {
 	if Cfg.Target == "" {
 		return errors.New("target is required for view")
 	}
-	v := &AVault{Path: Cfg.Target}
+	v := &AVault{
+		Path: Cfg.Target,
+		Mask: Bencrypt.GetMasker(-1),
+	}
 	defer func() { sclear(v.VaultKey) }()
 	pw, _ := Cfg.mask.XOR(Cfg.PW)
 	defer sclear(pw)
@@ -248,6 +254,7 @@ func f_trim() error {
 	}
 	v := &AVault{
 		Path:  Cfg.Target,
+		Mask:  Bencrypt.GetMasker(-1),
 		DoPad: Cfg.DoPad,
 	}
 	defer func() { sclear(v.VaultKey) }()

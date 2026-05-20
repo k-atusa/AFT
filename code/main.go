@@ -794,5 +794,7 @@ func main() {
 		}
 	}()
 	var p LoginPage
-	p.Main(new(U1Config), new(AVault))
+	a := new(AVault)
+	a.Mask = Bencrypt.GetMasker(-1)
+	p.Main(new(U1Config), a)
 }

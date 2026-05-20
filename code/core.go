@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/k-atusa/USAG-Lib/Bencode"
 	"github.com/k-atusa/USAG-Lib/Bencrypt"
 	"github.com/k-atusa/USAG-Lib/Icons"
 	"github.com/k-atusa/USAG-Lib/Opsec"
@@ -56,11 +55,11 @@ func (a *AVault) prehead() []byte {
 	return append(ico, make([]byte, 128-len(ico)%128)...)
 }
 
-func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg string, smsg string, err error) {
+func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg string, smsgi []byte, err error) {
 	// open file
 	f, err := os.Open(path)
 	if err != nil {
-		return data, msg, smsg, err
+		return data, msg, smsgi, err
 	}
 	defer f.Close()
 
@@ -70,40 +69,40 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 	ops.Reset()
 	h, err := ops.Read(f, 0)
 	if err != nil {
-		return data, msg, smsg, err
+		return data, msg, smsgi, err
 	}
 	ops.View(h)
 	msg = ops.Msg
 	err = ops.Decpw(pw, kf) // plain pw kf
-	smsg = ops.Smsg
+	smsgi = ops.SmsgInfo
 	if err != nil {
-		return data, msg, smsg, err
+		return data, msg, smsgi, err
 	}
 	if ops.BodySize <= 0 { // only header, no body
-		return data, msg, smsg, nil
+		return data, msg, smsgi, nil
 	}
 
 	// decrypt body
 	sm := new(Bencrypt.SymMaster)
 	defer func() { sclear(sm.Key) }()
 	if err := sm.Init(ops.BodyAlgo, ops.BodyKey); err != nil {
-		return data, msg, smsg, err
+		return data, msg, smsgi, err
 	}
 	buf := bytes.NewBuffer(make([]byte, 0, ops.BodySize))
 	if err := sm.DeFile(f, ops.BodySize, buf); err != nil {
-		return data, msg, smsg, err
+		return data, msg, smsgi, err
 	}
 	data = buf.Bytes()
-	return data, msg, smsg, nil
+	return data, msg, smsgi, nil
 }
 
-func (a *AVault) hwrite(msg string, smsg string, path string, pw []byte, kf []byte) error {
+func (a *AVault) hwrite(msg string, smsgi []byte, path string, pw []byte, kf []byte) error {
 	// encrypt header
 	ops := new(Opsec.Opsec)
 	defer func() { sclear(ops.BodyKey) }()
 	ops.Reset()
 	ops.Msg = msg
-	ops.Smsg = smsg
+	ops.SmsgInfo = smsgi
 	header, err := ops.Encpw(a.AlgoType, pw, kf) // plain pw kf
 	if err != nil {
 		return err
@@ -254,28 +253,19 @@ func (a *AVault) Load(pw []byte, kf []byte) (string, error) {
 	}
 
 	// 2. load account file, set (AlgoType, Ext, VaultKey)
-	_, msg, smsg, err := a.qread(accPath, pw, kf) // plain pw kf
+	_, msg, smsgi, err := a.qread(accPath, pw, kf) // plain pw kf
+	defer sclear(smsgi)
 	if err != nil {
 		return msg, err
 	}
-	parts := strings.Split(smsg, "\n")
-	if len(parts) != 3 {
-		return msg, errors.New("invalid account file")
-	}
-	a.Mask = Bencrypt.GetMasker(-1)
-	tempkey, err := Bencode.Decode64(parts[2], "")
-	parts[2] = ""
-	defer sclear(tempkey)
-	if err == nil {
-		a.VaultKey, err = a.Mask.XOR(tempkey) // save VaultKey as masked
-		a.AlgoType, a.Ext = parts[0], parts[1]
-	}
+	a.AlgoType, a.Ext = strings.Trim(string(smsgi[0:16]), " "), strings.Trim(string(smsgi[16:32]), " ")
+	a.VaultKey, err = a.Mask.XOR(smsgi[32:]) // save VaultKey as masked
 	if err != nil {
 		return msg, err
 	}
 
 	// 3. load name file
-	data, _, _, err := a.qread(nmPath, tempkey, nil)
+	data, _, _, err := a.qread(nmPath, smsgi[32:], nil)
 	if err != nil {
 		return msg, err
 	}
@@ -348,7 +338,21 @@ func (a *AVault) StoreAccount(pw []byte, kf []byte, msg string) error {
 	if err != nil {
 		return err
 	}
-	return a.hwrite(msg, a.AlgoType+"\n"+a.Ext+"\n"+Bencode.Encode64h(key), path, pw, kf) // plain pw kf
+	if len(a.AlgoType) > 16 || len(a.Ext) > 16 {
+		return errors.New("invalid AlgoType or Ext")
+	}
+	smsgi := make([]byte, 0, 32+len(key))
+	defer func() { sclear(smsgi) }()
+	smsgi = append(smsgi, []byte(a.AlgoType)...)
+	for i := 0; i < 16-len(a.AlgoType); i++ {
+		smsgi = append(smsgi, ' ')
+	}
+	smsgi = append(smsgi, []byte(a.Ext)...)
+	for i := 0; i < 16-len(a.Ext); i++ {
+		smsgi = append(smsgi, ' ')
+	}
+	smsgi = append(smsgi, key...)
+	return a.hwrite(msg, smsgi, path, pw, kf) // plain pw kf
 }
 
 // add file or folder to vault

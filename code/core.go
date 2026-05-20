@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"sort"
 	"strings"
@@ -21,6 +22,10 @@ const AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.4.0"
 const METHOD_HASH string = "sha3"
 const METHOD_SYM string = "gcmx1"
 const LIMIT_MEM int64 = 512 * 1048576
+
+var SCLEAR_BACK = func(b []byte) { clear(b) }
+
+func sclear(data []byte) { SCLEAR_BACK(data); runtime.KeepAlive(data) }
 
 // AFT Vault
 type AVault struct {
@@ -61,7 +66,7 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 
 	// read and decrypt header
 	ops := new(Opsec.Opsec)
-	defer func() { clear(ops.BodyKey) }()
+	defer func() { sclear(ops.BodyKey) }()
 	ops.Reset()
 	h, err := ops.Read(f, 0)
 	if err != nil {
@@ -80,7 +85,7 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 
 	// decrypt body
 	sm := new(Bencrypt.SymMaster)
-	defer func() { clear(sm.Key) }()
+	defer func() { sclear(sm.Key) }()
 	if err := sm.Init(ops.BodyAlgo, ops.BodyKey); err != nil {
 		return data, msg, smsg, err
 	}
@@ -95,7 +100,7 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 func (a *AVault) hwrite(msg string, smsg string, path string, pw []byte, kf []byte) error {
 	// encrypt header
 	ops := new(Opsec.Opsec)
-	defer func() { clear(ops.BodyKey) }()
+	defer func() { sclear(ops.BodyKey) }()
 	ops.Reset()
 	ops.Msg = msg
 	ops.Smsg = smsg
@@ -137,14 +142,14 @@ func (a *AVault) hwrite(msg string, smsg string, path string, pw []byte, kf []by
 func (a *AVault) qwrite(data []byte, path string, pw []byte) error {
 	// prepare worker
 	sm := new(Bencrypt.SymMaster)
-	defer func() { clear(sm.Key) }()
+	defer func() { sclear(sm.Key) }()
 	if err := sm.Init(METHOD_SYM, make([]byte, 44)); err != nil {
 		return err
 	}
 
 	// encrypt header
 	ops := new(Opsec.Opsec)
-	defer func() { clear(ops.BodyKey) }()
+	defer func() { sclear(ops.BodyKey) }()
 	ops.Reset()
 	ops.BodySize = sm.AfterSize(int64(len(data)))
 	ops.BodyAlgo = METHOD_SYM
@@ -260,7 +265,7 @@ func (a *AVault) Load(pw []byte, kf []byte) (string, error) {
 	a.Mask = Bencrypt.GetMasker(-1)
 	tempkey, err := Bencode.Decode64(parts[2], "")
 	parts[2] = ""
-	defer clear(tempkey)
+	defer sclear(tempkey)
 	if err == nil {
 		a.VaultKey, err = a.Mask.XOR(tempkey) // save VaultKey as masked
 		a.AlgoType, a.Ext = parts[0], parts[1]
@@ -327,7 +332,7 @@ func (a *AVault) StoreName() error {
 	path := filepath.Join(a.Path, "name."+a.Ext)
 	os.Rename(path, path+".old")
 	key, err := a.Mask.XOR(a.VaultKey) // restore VaultKey
-	defer clear(key)
+	defer sclear(key)
 	if err != nil {
 		return err
 	}
@@ -339,7 +344,7 @@ func (a *AVault) StoreAccount(pw []byte, kf []byte, msg string) error {
 	path := filepath.Join(a.Path, "account."+a.Ext)
 	os.Rename(path, path+".old")
 	key, err := a.Mask.XOR(a.VaultKey) // restore VaultKey
-	defer clear(key)
+	defer sclear(key)
 	if err != nil {
 		return err
 	}
@@ -523,7 +528,7 @@ func (a *AVault) Read(name string) ([]byte, error) {
 	}
 	path := filepath.Join(a.Path, cipher)
 	key, err := a.Mask.XOR(a.VaultKey)
-	defer clear(key)
+	defer sclear(key)
 	if err != nil {
 		return nil, err
 	}
@@ -535,7 +540,7 @@ func (a *AVault) Read(name string) ([]byte, error) {
 func (a *AVault) Write(name string, data []byte) error {
 	path := filepath.Join(a.Path, a.hexname(name))
 	key, err := a.Mask.XOR(a.VaultKey)
-	defer clear(key)
+	defer sclear(key)
 	if err != nil {
 		return err
 	}
@@ -561,17 +566,17 @@ func (a *AVault) Bypass(src string, dst string, isEnc bool) error {
 
 	// prepare worker
 	ops := new(Opsec.Opsec)
-	defer func() { clear(ops.BodyKey) }()
+	defer func() { sclear(ops.BodyKey) }()
 	ops.Reset()
 	sm := new(Bencrypt.SymMaster)
-	defer func() { clear(sm.Key) }()
+	defer func() { sclear(sm.Key) }()
 	if err := sm.Init(METHOD_SYM, make([]byte, 44)); err != nil {
 		return err
 	}
 
 	// prepare key
 	key, err := a.Mask.XOR(a.VaultKey)
-	defer clear(key)
+	defer sclear(key)
 	if err != nil {
 		return err
 	}

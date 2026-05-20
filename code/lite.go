@@ -50,13 +50,13 @@ func (cfg *Config) Init() {
 	// mask password
 	cfg.mask = Bencrypt.GetMasker(-1)
 	pwb := Bencode.NormPW(tempPW)
-	defer clear(pwb)
+	defer sclear(pwb)
 	cfg.PW, _ = cfg.mask.XOR(pwb)
 	tempPW = ""
 
 	// mask keyfile
 	var key []byte
-	defer func() { clear(key) }()
+	defer func() { sclear(key) }()
 	if kfpath == "" {
 		key = nil
 	} else if _, err := os.Stat(kfpath); err == nil { // file
@@ -108,11 +108,11 @@ func f_import() error {
 		PtoCtbl:  make(map[string]string),
 		CtoPtbl:  make(map[string]string),
 	}
-	defer clear(v.VaultKey)
+	defer sclear(v.VaultKey)
 	pw, _ := Cfg.mask.XOR(Cfg.PW)
-	defer clear(pw)
+	defer sclear(pw)
 	kf, _ := Cfg.mask.XOR(Cfg.KF)
-	defer clear(kf)
+	defer sclear(kf)
 	if err := v.StoreAccount(pw, kf, Cfg.Msg); err != nil {
 		return err
 	}
@@ -146,11 +146,11 @@ func f_export() error {
 
 	// load vault
 	v := &AVault{Path: Cfg.Target}
-	defer func() { clear(v.VaultKey) }()
+	defer func() { sclear(v.VaultKey) }()
 	pw, _ := Cfg.mask.XOR(Cfg.PW)
-	defer clear(pw)
+	defer sclear(pw)
 	kf, _ := Cfg.mask.XOR(Cfg.KF)
-	defer clear(kf)
+	defer sclear(kf)
 	msg, err := v.Load(pw, kf)
 	if msg != "" {
 		fmt.Printf("[msg] %s\n", msg)
@@ -202,11 +202,11 @@ func f_view() error {
 		return errors.New("target is required for view")
 	}
 	v := &AVault{Path: Cfg.Target}
-	defer func() { clear(v.VaultKey) }()
+	defer func() { sclear(v.VaultKey) }()
 	pw, _ := Cfg.mask.XOR(Cfg.PW)
-	defer clear(pw)
+	defer sclear(pw)
 	kf, _ := Cfg.mask.XOR(Cfg.KF)
-	defer clear(kf)
+	defer sclear(kf)
 	msg, err := v.Load(pw, kf)
 	if err != nil {
 		fmt.Printf("[msg] %s\n", msg)
@@ -215,7 +215,7 @@ func f_view() error {
 
 	// print vault metadata
 	key, _ := Cfg.mask.XOR(v.VaultKey)
-	defer clear(key)
+	defer sclear(key)
 	fmt.Println("========== AFT Vault Metadata ==========")
 	fmt.Printf("Message     : %s\n", msg)
 	fmt.Printf("Algorithm   : %s\n", v.AlgoType)
@@ -250,11 +250,11 @@ func f_trim() error {
 		Path:  Cfg.Target,
 		DoPad: Cfg.DoPad,
 	}
-	defer func() { clear(v.VaultKey) }()
+	defer func() { sclear(v.VaultKey) }()
 	pw, _ := Cfg.mask.XOR(Cfg.PW)
-	defer clear(pw)
+	defer sclear(pw)
 	kf, _ := Cfg.mask.XOR(Cfg.KF)
-	defer clear(kf)
+	defer sclear(kf)
 	msg, err := v.Load(pw, kf)
 	if err != nil {
 		return err
@@ -270,9 +270,9 @@ func f_trim() error {
 
 	// make new key
 	oldKey := v.VaultKey
-	defer clear(oldKey)
+	defer sclear(oldKey)
 	newKey := Bencrypt.Random(64) // randgen is already masked
-	defer clear(newKey)
+	defer sclear(newKey)
 	fmt.Println("New vault key created...")
 
 	// re-encrypt all files

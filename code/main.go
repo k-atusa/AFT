@@ -138,8 +138,8 @@ func (l *LoginPage) Fill() {
 	btn2 := widget.NewButtonWithIcon("Login", theme.LoginIcon(), func() {
 		pw := Bencode.NormPW(ent2.Text)
 		kf, _ := l.mask.XOR(l.KeyFile)
-		defer clear(pw)
-		defer clear(kf)
+		defer sclear(pw)
+		defer sclear(kf)
 		ent2.SetText("")
 
 		l.Vault.Path = l.VaultPath
@@ -197,8 +197,8 @@ func (l *LoginPage) Fill() {
 		pw := Bencode.NormPW(ent2.Text)
 		kf, _ := l.mask.XOR(l.KeyFile)
 		msg := ent6.Text
-		defer clear(pw)
-		defer clear(kf)
+		defer sclear(pw)
+		defer sclear(kf)
 		ent2.SetText("")
 
 		// 2. set config
@@ -520,8 +520,8 @@ func (v *ViewPage) transfer(cut bool) {
 			}()
 			sharedS := Bencode.NormPW(entrySecret.Text)
 			fyne.Do(func() { entrySecret.SetText("") })
-			defer clear(sharedS)
-			defer clear(data)
+			defer sclear(sharedS)
+			defer sclear(data)
 
 			// 3-1. Make TCP Socket
 			sock := new(TP1.TCPsocket)
@@ -757,9 +757,9 @@ func (v *ViewPage) ResetPW() {
 			return
 		}
 		pw := Bencode.NormPW(ent1a.Text)
-		defer clear(pw)
+		defer sclear(pw)
 		kf, _ := mask.XOR(keyFile)
-		defer clear(kf)
+		defer sclear(kf)
 		ent1a.SetText("")
 		ent1b.SetText("")
 

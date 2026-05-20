@@ -52,8 +52,8 @@ github.com/josephspurrier/goversioninfo v1.4.1 h1:5LvrkP+n0tg91J9yTkoVnt/QgNnrI1
 github.com/josephspurrier/goversioninfo v1.4.1/go.mod h1:JWzv5rKQr+MmW+LvM412ToT/IkYDZjaclF2pKDss8IY=
 github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25 h1:YLvr1eE6cdCqjOe972w/cYF+FjW34v27+9Vo5106B4M=
 github.com/jsummers/gobmp v0.0.0-20230614200233-a9de23ed2e25/go.mod h1:kLgvv7o6UM+0QSf0QjAse3wReFDsb9qbZJdfexWlrQw=
-github.com/k-atusa/USAG-Lib v1.4.4 h1:E/yM0y1qoYEMAu9/qP5hXj1WhciTkdx7J4vJxot/J20=
-github.com/k-atusa/USAG-Lib v1.4.4/go.mod h1:qsFKJJfMEXDJ4XgXwY8+SKsDWRQ67udFVtXYE8AeyNk=
+github.com/k-atusa/USAG-Lib v1.4.5 h1:3un5EI2HGDDWIcEvyata3pAYPL0Lyly7F7or06768Rs=
+github.com/k-atusa/USAG-Lib v1.4.5/go.mod h1:qsFKJJfMEXDJ4XgXwY8+SKsDWRQ67udFVtXYE8AeyNk=
 github.com/kr/text v0.2.0 h1:5Nx0Ya0ZqY2ygV366QzturHI13Jq95ApcVaJBhpS+AY=
 github.com/kr/text v0.2.0/go.mod h1:eLer722TekiGuMkidMxC/pM04lWEeraHUUmBw8l2grE=
 github.com/mattn/go-runewidth v0.0.17 h1:78v8ZlW0bP43XfmAfPsdXcoNCelfMHsDmd/pkENfrjQ=
@@ -84,8 +84,8 @@ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/testify v1.6.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/taewook427/USAG-KOX v1.0.0 h1:ejV9V1eOrem91o5q39xy0E8lfy1CBF8gO9ZebT4kPqk=
-github.com/taewook427/USAG-KOX v1.0.0/go.mod h1:/uxR1MhjAvzgcHfh7/xn4ZY+J3x9LfA6pTi7q6SkyRI=
+github.com/taewook427/USAG-KOX v1.0.1 h1:jZe/kMvg0DHPFhzIQ3HojhaHFqWxHR3wNP/FwmvfSrM=
+github.com/taewook427/USAG-KOX v1.0.1/go.mod h1:9qRonTLLHFe+G7HHhEEJi9gG8Ebe6QGzEInFr2eUp2s=
 github.com/yuin/goldmark v1.7.8 h1:iERMLn0/QJeHFhxSt3p6PeN9mGnvIKSpG9YYorDMnic=
 github.com/yuin/goldmark v1.7.8/go.mod h1:uzxRWxtg69N339t3louHJ7+O03ezfj6PlliRlaOzY1E=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=

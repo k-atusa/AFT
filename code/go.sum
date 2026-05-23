@@ -84,8 +84,8 @@ github.com/stretchr/objx v0.1.0/go.mod h1:HFkY916IF+rwdDfMAkV7OtwuqBVzrE8GR6GFx+
 github.com/stretchr/testify v1.6.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
-github.com/taewook427/USAG-KOX v1.0.2 h1:uNtfzivyoSUfE0NNUI2ZhBdlOJUnZr6VoZLialkz6s8=
-github.com/taewook427/USAG-KOX v1.0.2/go.mod h1:FN0hkGBbMTqLUZOMw+lHhWNuLbIto8CmCNT9byB6RVI=
+github.com/taewook427/USAG-KOX v1.0.3 h1:/wU3r1EXWiP8x+0SyL1c1OqR3i/vWkmSxPybE0mej0M=
+github.com/taewook427/USAG-KOX v1.0.3/go.mod h1:FN0hkGBbMTqLUZOMw+lHhWNuLbIto8CmCNT9byB6RVI=
 github.com/yuin/goldmark v1.7.8 h1:iERMLn0/QJeHFhxSt3p6PeN9mGnvIKSpG9YYorDMnic=
 github.com/yuin/goldmark v1.7.8/go.mod h1:uzxRWxtg69N339t3louHJ7+O03ezfj6PlliRlaOzY1E=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=

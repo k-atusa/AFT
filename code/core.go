@@ -485,15 +485,24 @@ func (a *AVault) Rename(src string, dst string) error {
 	}
 
 	// rename tables
+	toDelete := make([]string, 0)
+	toAdd := make([]string, 0)
 	for pName, cName := range a.PtoCtbl {
 		if pName == src || (isFolder && strings.HasPrefix(pName, src)) {
 			updatedPName := dst + pName[len(src):]
-			delete(a.PtoCtbl, pName)
-			delete(a.CtoPtbl, cName)
-			a.PtoCtbl[updatedPName] = cName
-			a.CtoPtbl[cName] = updatedPName
+			toDelete = append(toDelete, pName, cName)
+			toAdd = append(toAdd, updatedPName, cName)
 		}
 	}
+	for i := 0; i < len(toDelete); i += 2 {
+		delete(a.PtoCtbl, toDelete[i])
+		delete(a.CtoPtbl, toDelete[i+1])
+	}
+	for i := 0; i < len(toAdd); i += 2 {
+		a.PtoCtbl[toAdd[i]] = toAdd[i+1]
+		a.CtoPtbl[toAdd[i+1]] = toAdd[i]
+	}
+	toDelete, toAdd = nil, nil
 
 	// update treeview
 	if isFolder {

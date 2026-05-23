@@ -361,6 +361,7 @@ func (v *ViewPage) Fill() {
 	btn3 := widget.NewButtonWithIcon("Logout", theme.LogoutIcon(), func() {
 		dialog.ShowConfirm("Logout", "Logout Now?", func(b bool) {
 			if b {
+				sclear(v.Vault.VaultKey)
 				v.Vault = nil
 				v.Window.Close()
 			}
@@ -393,8 +394,10 @@ func (v *ViewPage) ResetTimer() {
 	v.LogoutTime = time.Now().Add(time.Duration(v.Config.AutoExpire) * time.Minute)
 	v.LogoutTimer = time.AfterFunc(time.Duration(v.Config.AutoExpire)*time.Minute, func() {
 		fyne.Do(func() {
-			sclear(v.Vault.VaultKey)
-			v.Vault = nil
+			if v.Vault != nil {
+				sclear(v.Vault.VaultKey)
+				v.Vault = nil
+			}
 			v.Window.Close()
 		})
 	})

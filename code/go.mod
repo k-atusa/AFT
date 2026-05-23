@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	fyne.io/fyne/v2 v2.7.4
 	github.com/k-atusa/USAG-Lib v1.4.7
-	github.com/taewook427/USAG-KOX v1.0.2
+	github.com/taewook427/USAG-KOX v1.0.3
 	golang.org/x/image v0.40.0
 )
 

@@ -5,8 +5,8 @@ go 1.26.3
 require (
 	fyne.io/fyne/v2 v2.7.4
 	github.com/k-atusa/USAG-Lib v1.4.7
-	github.com/taewook427/USAG-KOX v1.0.3
-	golang.org/x/image v0.40.0
+	github.com/taewook427/USAG-KOX v1.1.0
+	golang.org/x/image v0.42.0
 )
 
 require (
@@ -48,6 +48,6 @@ require (
 	golang.org/x/crypto v0.51.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.44.0 // indirect
-	golang.org/x/text v0.37.0 // indirect
+	golang.org/x/text v0.38.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

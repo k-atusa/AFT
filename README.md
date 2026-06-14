@@ -24,7 +24,7 @@ project USAG: Advanced File Transfer desktop version
 - trim: 볼트의 논리적 구조와 파일시스템의 물리적 구조를 동기화하고 암호화 키 쌍을 새 것으로 교체합니다. Sync logical structure of vault with physical file system, replace encryption key pair to new one.
 
 CLI version does not support file transfer function. However, trim function is supported only with CLI version.
-AFT Vault is designed to store small secret files like private keys.
+AFT Vault is designed to store small secret files like private keys and key files, and transmit them via TP1 to YAS.
 
 ## GUI Usage
 

@@ -181,9 +181,9 @@ func (l *LoginPage) Fill() {
 	sel5a := widget.NewSelect([]string{"webp", "png", "bin"}, func(s string) { l.ImgType = s })
 	sel5a.SetSelected("webp")
 	l.ImgType = "webp"
-	sel5b := widget.NewSelect([]string{"arg2", "pbk2"}, func(s string) { l.KeyAlgo = s })
-	sel5b.SetSelected("arg2")
-	l.KeyAlgo = "arg2"
+	sel5b := widget.NewSelect([]string{"arg2st", "arg2low"}, func(s string) { l.KeyAlgo = s })
+	sel5b.SetSelected("arg2st")
+	l.KeyAlgo = "arg2st"
 
 	// group6: generate new vault
 	ent6 := widget.NewEntry()
@@ -538,10 +538,10 @@ func (v *ViewPage) transfer(cut bool) {
 			// 3-2. Accept Connection
 			tp := new(TP1.TP1)
 			switch v.Vault.AlgoType {
-			case "arg2": // arg2 + gcm1 + pqc1
-				tp.Init(TP1.HASH_ARG2+TP1.SYM_GCM1+TP1.ASYM_PQC1, true, v.Config.DoPad, sharedS, sock.Conn)
-			case "pbk2": // pbk2 + gcm1 + ecc1
-				tp.Init(TP1.HASH_PBK2+TP1.SYM_GCM1+TP1.ASYM_ECC1, true, v.Config.DoPad, sharedS, sock.Conn)
+			case "arg2st": // arg2st + gcm1 + pqc1
+				tp.Init(TP1.HASH_ARG2_ST+TP1.SYM_GCM1+TP1.ASYM_PQC1, true, v.Config.DoPad, sharedS, sock.Conn)
+			case "arg2low": // arg2low + gcm1 + ecc1
+				tp.Init(TP1.HASH_ARG2_LOW+TP1.SYM_GCM1+TP1.ASYM_ECC1, true, v.Config.DoPad, sharedS, sock.Conn)
 			default:
 				tp.Init(0, true, v.Config.DoPad, sharedS, sock.Conn)
 			}

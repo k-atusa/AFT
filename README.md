@@ -1,4 +1,4 @@
-# AFT-desktop v1.4.0
+# AFT-desktop v1.5.0
 
 project USAG: Advanced File Transfer desktop version
 
@@ -10,7 +10,7 @@ project USAG: Advanced File Transfer desktop version
 | :--- | :--- | :--- | :--- |
 | -m | import, export, view, trim | Sets the working mode. | 작업 모드를 설정합니다. |
 | -o | dirpath | Sets the output path. | 출력 경로를 설정합니다. |
-| -algo | arg2, pbk2 | Sets the encryption algorithm. | 암호화 알고리즘을 설정합니다. |
+| -algo | arg2low, arg2st | Sets the encryption algorithm. | 암호화 알고리즘을 설정합니다. |
 | -img | webp, png, bin | Sets the image format. | 위장 이미지 형식을 설정합니다. |
 | -pw | text | Sets the password. | 비밀번호를 설정합니다. |
 | -kf | filepath | Sets the key file path. | 키 파일 경로를 설정합니다. |

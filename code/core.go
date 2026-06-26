@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/hex"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -17,7 +18,7 @@ import (
 	"github.com/k-atusa/USAG-Lib/Opsec"
 )
 
-const AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.4.0"
+const AFT_VERSION string = "2026 @k-atusa [USAG] AFT v1.5.0"
 const METHOD_HASH string = "sha3"
 const METHOD_SYM string = "gcmx1"
 const LIMIT_MEM int64 = 512 * 1048576
@@ -32,7 +33,7 @@ type AVault struct {
 	DoPad bool
 	Mask  *Bencrypt.Masker
 
-	AlgoType string // pbk2, arg2
+	AlgoType string // arg2low, arg2st
 	Ext      string // webp, png, bin
 	VaultKey []byte // vault masterkey (masked)
 
@@ -65,8 +66,8 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 
 	// read and decrypt header
 	ops := new(Opsec.Opsec)
-	defer func() { sclear(ops.BodyKey) }()
-	ops.Reset()
+	ops.Init()
+	defer ops.Clear()
 	h, err := ops.Read(f, 0)
 	if err != nil {
 		return data, msg, smsgi, err
@@ -99,8 +100,8 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 func (a *AVault) hwrite(msg string, smsgi []byte, path string, pw []byte, kf []byte) error {
 	// encrypt header
 	ops := new(Opsec.Opsec)
-	defer func() { sclear(ops.BodyKey) }()
-	ops.Reset()
+	ops.Init()
+	defer ops.Clear()
 	ops.Msg = msg
 	ops.SmsgInfo = smsgi
 	header, err := ops.Encpw(a.AlgoType, pw, kf) // plain pw kf
@@ -148,8 +149,8 @@ func (a *AVault) qwrite(data []byte, path string, pw []byte) error {
 
 	// encrypt header
 	ops := new(Opsec.Opsec)
-	defer func() { sclear(ops.BodyKey) }()
-	ops.Reset()
+	ops.Init()
+	defer ops.Clear()
 	ops.BodySize = sm.AfterSize(int64(len(data)))
 	ops.BodyAlgo = METHOD_SYM
 	header, err := ops.Encpw(METHOD_HASH, pw, nil) // plain pw
@@ -579,8 +580,8 @@ func (a *AVault) Bypass(src string, dst string, isEnc bool) error {
 
 	// prepare worker
 	ops := new(Opsec.Opsec)
-	defer func() { sclear(ops.BodyKey) }()
-	ops.Reset()
+	ops.Init()
+	defer ops.Clear()
 	sm := new(Bencrypt.SymMaster)
 	defer func() { sclear(sm.Key) }()
 	if err := sm.Init(METHOD_SYM, make([]byte, 44)); err != nil {
@@ -734,4 +735,114 @@ func (a *AVault) Trim() (int, error) {
 		sort.Strings(a.TreeView[k])
 	}
 	return count, a.StoreName()
+}
+
+// re-encrypt file with new masterkey
+func (a *AVault) ReCrypt(cipher string, oldKey []byte, newKey []byte) error {
+	path := filepath.Join(a.Path, cipher)
+	srcf, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer srcf.Close()
+
+	// read Opsec header
+	ops := new(Opsec.Opsec)
+	ops.Init()
+	defer ops.Clear()
+	h, err := ops.Read(srcf, 0)
+	if err != nil {
+		return err
+	}
+	ops.View(h)
+
+	// decode oldkey and decrypt
+	oKey, err := a.Mask.XOR(oldKey)
+	defer sclear(oKey)
+	if err != nil {
+		return err
+	}
+	if err := ops.Decpw(oKey, nil); err != nil {
+		return err
+	}
+
+	// copy bodykey, get GCMX1 plainsize
+	oldBodyKey := append([]byte(nil), ops.BodyKey...)
+	defer sclear(oldBodyKey)
+	bodySize := ops.BodySize
+	cSz := bodySize - 12
+	plainSize := (cSz / 1048592) * 1048576
+	if rem := cSz % 1048592; rem > 0 {
+		plainSize += rem - 16
+	}
+
+	// decode newkey and encrypt
+	nKey, err := a.Mask.XOR(newKey)
+	defer sclear(nKey)
+	if err != nil {
+		return err
+	}
+	header, err := ops.Encpw(METHOD_HASH, nKey, nil)
+	if err != nil {
+		return err
+	}
+
+	// get temp file
+	tmpPath := path + ".temp"
+	dstf, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+	defer dstf.Close()
+
+	// write header
+	var writed int64 = 0
+	tb := a.prehead()
+	writed += int64(len(tb))
+	if _, err := dstf.Write(tb); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	writed += int64(len(header)) + 6
+	if len(header) >= 65535 {
+		writed += 2
+	}
+	if err := ops.Write(dstf, header); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+
+	// re-encrypt
+	oldSm := new(Bencrypt.SymMaster)
+	newSm := new(Bencrypt.SymMaster)
+	if err := oldSm.Init(METHOD_SYM, oldBodyKey); err != nil {
+		return err
+	}
+	if err := newSm.Init(METHOD_SYM, ops.BodyKey); err != nil {
+		return err
+	}
+	pr, pw := io.Pipe()
+	go func() {
+		err := oldSm.DeFile(srcf, bodySize, pw)
+		if err == nil {
+			pw.Close()
+		} else {
+			pw.CloseWithError(err)
+		}
+	}()
+	if err := newSm.EnFile(pr, plainSize, dstf); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	writed += bodySize
+
+	// pad and rename
+	if a.DoPad {
+		if err := Opsec.PadFile(dstf, Opsec.PadLen(writed)); err != nil {
+			return err
+		}
+	}
+	srcf.Close()
+	dstf.Close()
+	return os.Rename(tmpPath, path)
 }

@@ -33,7 +33,7 @@ func (cfg *Config) Init() {
 	fs := flag.NewFlagSet(os.Args[0], flag.ExitOnError) // empty string means auto
 	fs.StringVar(&cfg.Mode, "m", "help", "work mode: import, export, view, trim")
 	fs.StringVar(&cfg.Output, "o", "", "output folder")
-	fs.StringVar(&cfg.AlgoType, "algo", "arg2", "algorithm type: pbk2, arg2")
+	fs.StringVar(&cfg.AlgoType, "algo", "arg2st", "algorithm type: arg2low, arg2st")
 	fs.StringVar(&cfg.ImgType, "img", "webp", "image type: webp, png, bin")
 	fs.StringVar(&cfg.Msg, "msg", "", "message")
 	fs.BoolVar(&cfg.DoPad, "nopad", false, "disable padding")
@@ -290,45 +290,11 @@ func f_trim() error {
 			continue
 		}
 		fmt.Printf("Re-encrypting: %s\n", plain)
-
-		// set oldkey, get filesize
-		v.VaultKey = oldKey
-		fileName := filepath.Join(v.Path, cipher)
-		info, err := os.Stat(fileName)
+		err = v.ReCrypt(cipher, oldKey, newKey)
 		if err != nil {
-			fmt.Printf("    Skip: File not found (%v)\n", err)
+			fmt.Printf("    Skip: Re-encryption failed (%v)\n", err)
+			errFlag = true
 			continue
-		}
-
-		if info.Size() > LIMIT_MEM {
-			fmt.Printf("    Warning: Plaintext generation at disk\n    (%s)\n", fileName)
-			if err := v.Bypass(fileName, "./aft_plain.temp", false); err != nil {
-				fmt.Printf("    Skip: Decryption failed (%v)\n", err)
-				errFlag = true
-				continue
-			}
-			os.Rename(fileName, fileName+".temp")
-			v.VaultKey = newKey
-			if err := v.Bypass("./aft_plain.temp", fileName, true); err != nil {
-				fmt.Printf("    Skip: Encryption failed (%v)\n", err)
-				errFlag = true
-				continue
-			}
-
-		} else {
-			data, err := v.Read(plain)
-			if err != nil {
-				fmt.Printf("    Skip: Decryption failed (%v)\n", err)
-				errFlag = true
-				continue
-			}
-			os.Rename(fileName, fileName+".temp")
-			v.VaultKey = newKey
-			if err := v.Write(plain, data); err != nil {
-				fmt.Printf("    Skip: Encryption failed (%v)\n", err)
-				errFlag = true
-				continue
-			}
 		}
 	}
 
@@ -378,7 +344,7 @@ func main() {
 	default: // help
 		fmt.Print(AFT_VERSION + "\n\n")
 		fmt.Println("-m mode [import|export|view|trim] -o outdir -pw password -kf keyfile -msg message")
-		fmt.Println("-algo [pbk2|arg2] -img [webp|png|bin]")
+		fmt.Println("-algo [arg2low|arg2st] -img [webp|png|bin]")
 		fmt.Println("import: target -> outdir +(pw, kf, msg, nopad)")
 		fmt.Println("export: target -> outdir +(pw, kf)")
 		fmt.Println("view: list all files +(pw, kf)")

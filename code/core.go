@@ -75,7 +75,7 @@ func (a *AVault) qread(path string, pw []byte, kf []byte) (data []byte, msg stri
 	ops.View(h)
 	msg = ops.Msg
 	err = ops.Decpw(pw, kf) // plain pw kf
-	smsgi = ops.SmsgInfo
+	smsgi = bytes.Clone(ops.SmsgInfo)
 	if err != nil {
 		return data, msg, smsgi, err
 	}
@@ -143,7 +143,7 @@ func (a *AVault) qwrite(data []byte, path string, pw []byte) error {
 	// prepare worker
 	sm := new(Bencrypt.SymMaster)
 	defer func() { sclear(sm.Key) }()
-	if err := sm.Init(METHOD_SYM, make([]byte, 44)); err != nil {
+	if err := sm.Init(METHOD_SYM, make([]byte, 32)); err != nil {
 		return err
 	}
 
@@ -584,7 +584,7 @@ func (a *AVault) Bypass(src string, dst string, isEnc bool) error {
 	defer ops.Clear()
 	sm := new(Bencrypt.SymMaster)
 	defer func() { sclear(sm.Key) }()
-	if err := sm.Init(METHOD_SYM, make([]byte, 44)); err != nil {
+	if err := sm.Init(METHOD_SYM, make([]byte, 32)); err != nil {
 		return err
 	}
 
